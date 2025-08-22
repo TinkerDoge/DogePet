@@ -13,7 +13,6 @@ enum FaceMode : uint8_t;
 enum MoodState : uint8_t;
 // icons are moved to a separate header for easier updates
 #include "icons.h"
-#include <FluxGarage_RoboEyes.h>
 #include "mpu6050.h"
 #include <ChronosESP32.h>
 
@@ -47,6 +46,8 @@ Adafruit_NeoPixel strip = Adafruit_NeoPixel(1, LED_PIN, NEO_GRB + NEO_KHZ800);
 #define OLED_RESET -1
 #define SCREEN_ADDR 0x3C
 Adafruit_SH1106G display(SCREEN_W, SCREEN_H, &Wire, OLED_RESET); // must exist BEFORE RoboEyes include
+
+#include <FluxGarage_RoboEyes.h>
 
 // ---------- RoboEyes ----------
 
