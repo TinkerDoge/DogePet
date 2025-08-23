@@ -57,6 +57,9 @@ static inline void mpuReadRaw(int16_t &ax, int16_t &ay, int16_t &az, int16_t &gx
 }
 
 static inline void mpuCalibrate(int samples=200) {
+  // Prevent division by zero
+  if (samples <= 0) samples = 200;
+
   int64_t sax=0, say=0, saz=0, sgx=0, sgy=0, sgz=0;
   for (int i=0;i<samples;i++) {
     int16_t ax,ay,az,gx,gy,gz;

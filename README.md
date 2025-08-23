@@ -5,7 +5,19 @@ Designed to be lively, expressive, and extendable with sensors & peripherals.
 
 ⚡ Hardware Overview
 
-MCU: ESP32-S3 Super Mini
+MCU: ESP32-S3 Super Mini 
+https://www.espboards.dev/esp32/esp32-s3-super-mini/
+
+Ultra-small size: 22.52 x 18 mm
+Ultra-low power consumption: deep sleep power consumption of about 43μA
+Onboard WS2812 RGB LED for programmable multi-color status indication
+Dual-core Xtensa LX7 CPU running at up to 240 MHz
+512 KB SRAM, 384 KB ROM built-in, with 4 MB Flash
+Secure encryption features: AES-128/256, RSA, HMAC, digital signatures, and secure startup
+11 digital IO pins
+22 external interrupt pins
+6 analog input pins
+11 PWM pins
 
 Display: 128×64 OLED (SH1106, I²C)
 
@@ -65,15 +77,17 @@ Status LED behavior:
 
 Happy: gentle tilt detected
 
-Angry: fast shake detected
+Angry: moderate shake detected
 
-Curious: idle wander enabled
+Furious: very intense/continued shaking detected (angry eyes + intense jiggle)
 
-Blink: on tap/bump or random
+Blink: on tap/bump or random (but NOT when angry or furious)
+      Includes smart cooldown system to prevent continuous blinking during rapid movements
 
 Micro-jiggle: subtle flicker motion at random intervals
 
 Note: auto-sleep/tired mode currently disabled (always awake & curious).
+REMOVED: "Follow gravity" directional nudges - bot now only reacts to direct user interactions.
 
 🔌 Wiring
 Peripheral	ESP32-S3 Pin	Notes

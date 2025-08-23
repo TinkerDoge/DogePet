@@ -1,22 +1,33 @@
 // PetBot v0.1 — Visual Core (non-blocking BLE toggle, debounced touch)
 // Faces: RoboEyes (default), Clock, Notifications
+// Author: [Doge De Shibe]
+// Description: ESP32-S3 Super Mini companion bot with animated eyes, motion-reactive emotions
 
+// =============================================================================
+// INCLUDES & DEPENDENCIES
+// =============================================================================
 #include <Wire.h>
 #include <esp_system.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SH110X.h>
-
 #include <Adafruit_NeoPixel.h>
-// Forward-declare FaceMode so Arduino's auto-generated prototypes can refer to it
-enum FaceMode : uint8_t;
-// Forward-declare MoodState to avoid Arduino prototype generation issues
-enum MoodState : uint8_t;
-// icons are moved to a separate header for easier updates
-#include "icons.h"
-#include "mpu6050.h"
 #include <ChronosESP32.h>
 
-// === toast overlay (non-blocking) ===
+
+// Custom headers
+#include "icons.h"
+#include "mpu6050.h"
+
+#include "util.h"
+#include "motion.h"
+
+// =============================================================================
+// GLOBAL VARIABLES & CONSTANTS
+// =============================================================================
+// Forward-declare enums to avoid Arduino prototype generation issues
+enum FaceMode : uint8_t;
+enum MoodState : uint8_t;
+// === Toast overlay (non-blocking notifications) ===
 String  toastText;
 uint32_t toastUntil = 0;
 
@@ -24,209 +35,171 @@ inline void showToast(const String& s, uint16_t ms=1200) {
   toastText = s; toastUntil = millis() + ms;
 }
 
-// ---------- Pins ----------
-#define I2C_SDA   9
-#define I2C_SCL   8
-#define TOUCH_PIN 13   // HIGH when touched (TPS223)
-#define FUNC_BTN  1    // hold to toggle BLE
+// =============================================================================
+// HARDWARE CONFIGURATION
+// =============================================================================
 
-#define I2S_LRC  10   // WS/LRCLK
-#define I2S_BCLK 11   // BCLK
-#define I2S_DO   12   // SD out -> MAX98357A DIN
-#define I2S_DI    2   // (unused)
+// Pin definitions
+#define I2C_SDA         9
+#define I2C_SCL         8
+#define TOUCH_PIN       13   // HIGH when touched (TPS223)
+#define FUNC_BTN        1    // Hold to toggle BLE
+#define I2S_LRC         10   // WS/LRCLK
+#define I2S_BCLK        11   // BCLK
+#define I2S_DO          12   // SD out -> MAX98357A DIN
+#define I2S_DI          2    // (unused)
+#define LED_PIN         48   // Status LED (WS2812 data pin)
+#define LED_BRIGHTNESS  60
+#define VBAT_PIN        7    // Battery voltage divider
+#define VBAT_PIN        7    // Battery voltage divider
 
-#define LED_PIN   48    // status LED (WS2812 data pin)
-#define LED_BRIGHTNESS 60
 
-
+// Hardware object instances
 Adafruit_NeoPixel strip = Adafruit_NeoPixel(1, LED_PIN, NEO_GRB + NEO_KHZ800);
-// ---------- OLED ----------
-#define SCREEN_W 128
-#define SCREEN_H 64
-#define OLED_RESET -1
-#define SCREEN_ADDR 0x3C
-Adafruit_SH1106G display(SCREEN_W, SCREEN_H, &Wire, OLED_RESET); // must exist BEFORE RoboEyes include
 
+// OLED Display configuration
+#define SCREEN_W        128
+#define SCREEN_H        64
+#define OLED_RESET      -1
+#define SCREEN_ADDR     0x3C
+Adafruit_SH1106G display(SCREEN_W, SCREEN_H, &Wire, OLED_RESET); // Must exist BEFORE RoboEyes include
+
+// =============================================================================
+// GLOBAL CONSTANTS & CONFIGURATION
+// =============================================================================
+
+// === Emotion & Motion Detection Thresholds ===
+const float  TILT_HAPPY_DEG    = 20.0f;    // gentle tilt ⇒ happy
+const float  SHAKE_ANGRY_DPS   = 140.0f;   // quick gyro spike ⇒ angry
+const float  SHAKE_FURIOUS_DPS = 200.0f;   // higher gyro spike ⇒ furious
+const uint16_t SHAKE_MS        = 120;      // sustained spike window
+const uint16_t FURIOUS_MS      = 200;      // longer sustained spike for furious
+const float  STILL_G_THRESH    = 0.06f;    // |ax|,|ay| below this and az≈+1g → flat
+const float  AZ_1G_TOL         = 0.12f;    // az within 1g±tol
+
+// === Timing Constants ===
+const uint32_t MOOD_HOLD_MS    = 2500;     // how long to keep happy/angry
+const uint32_t FURIOUS_HOLD_MS = 4000;     // longer duration for furious
+// const uint32_t SLEEP_AFTER_MS  = 7000;     // removed: do not auto-sleep when flat
+
+// === Tap Detection Constants ===
+const float TAP_SPIKE_DPS      = 140.0f;  // quick rotation spike => blink
+const uint32_t TAP_MIN_GAP_MS  = 600;     // min time between blinks
+const uint32_t TAP_COOLDOWN_MS = 200;     // cooldown after tap detection to prevent continuous blinking
+
+// === Jiggle System Constants ===
+const uint32_t DIR_NUDGE_COOLDOWN_MS = 700;   // throttle direction nudges
+const float     DIR_DEADZONE_DEG      = 12.0f; // ignore tiny tilts (let idle roam)
+const float TILT_DEG_POSITIONS = 15.0f;   // sector change threshold
+
+// === Debug System Constants ===
+const float ACCEL_DELTA = 0.05f;   // g-units
+const float GYRO_DELTA  = 5.0f;    // deg/s
+
+// === Battery Sensing ===
+static constexpr float VBAT_MIN_V = 3.30f;  // 0%
+static constexpr float VBAT_MAX_V = 4.20f;  // 100%
+static constexpr uint8_t VBAT_SAMPLES = 12; // simple averaging
+
+// =============================================================================
+// GLOBAL VARIABLES
+// =============================================================================
+
+// === Emotion & Motion State ===
+uint32_t lastMoveMs = 0;        // when significant motion last happened
+uint32_t moodUntil  = 0;        // temporary mood timeout
+uint32_t shakeStart = 0;        // for sustained shake
+uint32_t furiousStart = 0;      // for furious shake detection
+bool     shaking    = false;
+bool     furiousShaking = false;
+
+// === Timing Variables ===
+static uint32_t lastBlinkMs = 0;
+static uint32_t lastTapCheckMs = 0;       // tracks last tap detection check
+
+// === Furious Jiggle System ===
+uint32_t furiousJiggleEndMs = 0;
+bool     furiousJiggling     = false;
+
+// === Regular Jiggle System ===
+uint32_t jiggleNextMs = 0;
+uint32_t jiggleEndMs  = 0;
+bool     jiggling     = false;
+
+// === Low Pass Filtering ===
+float lpf_ax = 0, lpf_ay = 0, lpf_az = 0, lpf_g = 0;
+
+// === Battery sense cache ===
+static uint32_t lastVbatReadMs = 0;
+static float    vbatVolts = 0.0f;
+static int      vbatPercent = -1; // -1 when unknown
+
+// === Debug System Variables ===
+static float last_ax = 0, last_ay = 0, last_az = 0;
+static float last_gx = 0, last_gy = 0, last_gz = 0;
+
+
+// =============================================================================
+// PSRAM-BACKED DOUBLE BUFFER (optional non-blocking flush)
+// =============================================================================
+
+
+// (double-buffering removed)
+
+// =============================================================================
+// ROBOEYES ANIMATION SYSTEM
+// =============================================================================
+
+// Important: include RoboEyes AFTER the global 'display' is instantiated
 #include <FluxGarage_RoboEyes.h>
 
-// ---------- RoboEyes ----------
-
 roboEyes Eyes;
+
+// Thin wrappers so motion.cpp can control RoboEyes without including its header
+void Eyes_SetMood(uint8_t mood) { Eyes.setMood(mood); }
+void Eyes_SetHFlicker(bool on, int level) { Eyes.setHFlicker(on, level); }
+void Eyes_SetVFlicker(bool on, int level) { Eyes.setVFlicker(on, level); }
+void Eyes_Blink() { Eyes.blink(); }
+
+// REMOVED: Furious jiggle variables moved to GLOBAL VARIABLES section above
+
 void setupRoboEyes() {
   Eyes.begin(SCREEN_W, SCREEN_H, 60);
   Eyes.setWidth(40, 40);
   Eyes.setHeight(26, 26);
   Eyes.setBorderradius(5, 5);
   Eyes.setSpacebetween(10);
-  // CHANGE: give the internal idle engine room to roam
+  // Give the internal idle engine room to roam
   Eyes.setAutoblinker(true, 3, 4);  // avg ~3s with ±4s jitter
   Eyes.setIdleMode(true, 4, 5);     // moderate wander frequency & randomness
   Eyes.setMood(DEFAULT);
   Eyes.setCuriosity(true);
 }
 
-// MPU moved to separate module
+// =============================================================================
+// MOTION PROCESSING & EMOTION SYSTEM
+// =============================================================================
 
-
-// define extern offsets declared in mpu6050.h
+// IMU calibration offsets (extern declarations from mpu6050.h)
 int32_t mpu_accel_off_x=0, mpu_accel_off_y=0, mpu_accel_off_z=0;
 int32_t mpu_gyro_off_x=0, mpu_gyro_off_y=0, mpu_gyro_off_z=0;
 
-// ===== Emotion engine (from IMU) =====
-enum MoodState : uint8_t { MS_DEFAULT, MS_HAPPY, MS_ANGRY, MS_TIRED };
-MoodState curMood = MS_DEFAULT;
+// Emotion system (type declared in motion.h)
+extern MoodState curMood;
 
 // Note: keep the status LED behavior separate; do not change it when mood changes.
-void setEyesMood(MoodState m) {
-  curMood = m;
-  switch (m) {
-    case MS_DEFAULT: Eyes.setMood(DEFAULT); break;
-    case MS_HAPPY:   Eyes.setMood(HAPPY);   break;
-    case MS_ANGRY:   Eyes.setMood(ANGRY);   break;
-    case MS_TIRED:   Eyes.setMood(TIRED);   break;
-  }
-}
-
-// Thresholds (tune to taste)
-const float  TILT_HAPPY_DEG    = 20.0f;    // gentle tilt ⇒ happy
-const float  SHAKE_ANGRY_DPS   = 140.0f;   // quick gyro spike ⇒ angry
-const uint16_t SHAKE_MS        = 120;      // sustained spike window
-const float  STILL_G_THRESH    = 0.06f;    // |ax|,|ay| below this and az≈+1g → flat
-const float  AZ_1G_TOL         = 0.12f;    // az within 1g±tol
-// const uint32_t SLEEP_AFTER_MS  = 7000;     // removed: do not auto-sleep when flat
-const uint32_t MOOD_HOLD_MS    = 2500;     // how long to keep happy/angry
-
-// State for detection
-uint32_t lastMoveMs = 0;        // when significant motion last happened
-uint32_t moodUntil  = 0;        // temporary mood timeout
-uint32_t shakeStart = 0;        // for sustained shake
-bool     shaking    = false;
-
-// tiny smoothing
-float lpf_ax=0, lpf_ay=0, lpf_az=0, lpf_g=0;
-inline float lpf(float prev, float x, float a=0.2f) { return prev*(1.0f-a) + x*a; }
-
-// Compute tilt (approx) from accel
-inline void accelToAngles(float ax, float ay, float az, float& pitchDeg, float& rollDeg) {
-  // pitch around X, roll around Y
-  pitchDeg = atan2f(-ax, sqrtf(ay*ay + az*az)) * 57.2958f;
-  rollDeg  = atan2f( ay, sqrtf(ax*ax + az*az)) * 57.2958f;
-}
-
-void updateEmotionsFromIMU() {
-  // read IMU (already calibrated in your setup)
-  float ax, ay, az, gx, gy, gz;
-  mpuRead(ax, ay, az, gx, gy, gz);
-
-  // low-pass accel & gyro magnitude
-  float gmag = sqrtf(gx*gx + gy*gy + gz*gz);
-  lpf_ax = lpf(lpf_ax, ax);
-  lpf_ay = lpf(lpf_ay, ay);
-  lpf_az = lpf(lpf_az, az);
-  lpf_g  = lpf(lpf_g , gmag, 0.3f);
-
-  // detect motion vs stillness
-  bool moving = (fabsf(ax) > STILL_G_THRESH) || (fabsf(ay) > STILL_G_THRESH) || (fabsf(az-1.0f) > AZ_1G_TOL) || (lpf_g > 40.0f);
-  if (moving) lastMoveMs = millis();
-
-  // quick SHAKE → ANGRY for a short period
-  if (lpf_g > SHAKE_ANGRY_DPS) {
-    if (!shaking) { shaking = true; shakeStart = millis(); }
-    if (millis() - shakeStart > SHAKE_MS) {
-      setEyesMood(MS_ANGRY);
-      moodUntil = millis() + MOOD_HOLD_MS;
-      showToast("grrr!");
-    }
-  } else {
-    shaking = false;
-  }
-
-  // TAP/BUMP detection: quick accel spike -> blink both eyes once
-  float tap_mag = fabsf(ax) + fabsf(ay) + fabsf(az - 1.0f);
-  if (tap_mag > 0.5f) {
-    // quick blink
-    Eyes.blink();
-  }
-
-  // gentle TILT → HAPPY briefly (if not angry)
-  float pitch, roll;
-  accelToAngles(lpf_ax, lpf_ay, lpf_az, pitch, roll);
-  if (curMood != MS_ANGRY) {
-    if (fabsf(pitch) > TILT_HAPPY_DEG || fabsf(roll) > TILT_HAPPY_DEG) {
-      setEyesMood(MS_HAPPY);
-      moodUntil = millis() + MOOD_HOLD_MS;
-    }
-  }
-
-  // NOTE: removed per-frame follow-gravity nudges so the library's idle/curiosity
-  // engine can roam naturally. We will use rare, throttled nudges elsewhere.
-
-  // removed auto-sleep behavior: keep the bot awake even when lying flat
-
-  // Expire temporary moods (happy/angry) back to default unless we’re sleeping
-  if (curMood != MS_TIRED && (curMood == MS_HAPPY || curMood == MS_ANGRY)) {
-    if (millis() > moodUntil) {
-      setEyesMood(MS_DEFAULT);
-    }
-  }
-
-  // (Optional) subtle brightness cue per mood via LED is already in setEyesMood()
-}
+// Implemented in motion.cpp
+// Furious jiggle functionality is implemented in motion.cpp
+void updateEmotionsFromIMU();
 
 // ===== Liveliness updater (~25Hz) =====
 
 // ---------- MPU Debug Printing ----------
-// last reported values
-static float last_ax=0, last_ay=0, last_az=0;
-static float last_gx=0, last_gy=0, last_gz=0;
-
-// thresholds to avoid spamming small jitter
-const float ACCEL_DELTA = 0.05f;   // g-units
-const float GYRO_DELTA  = 5.0f;    // deg/s
-
-void debugPrintIMUIfChanged() {
-  float ax,ay,az,gx,gy,gz;
-  mpuRead(ax,ay,az,gx,gy,gz);
-
-  bool changed = false;
-  if (fabs(ax-last_ax) > ACCEL_DELTA || fabs(ay-last_ay) > ACCEL_DELTA || fabs(az-last_az) > ACCEL_DELTA ||
-      fabs(gx-last_gx) > GYRO_DELTA  || fabs(gy-last_gy) > GYRO_DELTA  || fabs(gz-last_gz) > GYRO_DELTA) {
-    changed = true;
-  }
-
-  if (changed) {
-    Serial.printf("MPU ax=%.2f ay=%.2f az=%.2f gx=%.1f gy=%.1f gz=%.1f\n",
-      ax, ay, az, gx, gy, gz);
-    last_ax=ax; last_ay=ay; last_az=az;
-    last_gx=gx; last_gy=gy; last_gz=gz;
-  }
-}
+void debugPrintIMUIfChanged();
 
 // ===== Liveliness / IMU reaction =====
 static uint32_t imuTickMs = 0;
 // (lpf_ax, lpf_ay, lpf_az and lpf_g exist in the emotion engine; reuse them)
-
-// micro-jiggle timer
-static uint32_t jiggleNextMs = 0;
-static uint32_t jiggleEndMs  = 0;
-static bool     jiggling     = false;
-
-// direction nudge cooldown + deadzone
-static uint32_t lastDirNudgeMs = 0;
-const uint16_t  DIR_NUDGE_COOLDOWN_MS = 700;   // throttle direction nudges
-const float     DIR_DEADZONE_DEG      = 12.0f; // ignore tiny tilts (let idle roam)
-
-// thresholds (tweak to taste)
-const float TILT_DEG_POSITIONS = 15.0f;   // sector change threshold
-const float TAP_SPIKE_DPS      = 140.0f;  // quick rotation spike => blink
-const uint32_t TAP_MIN_GAP_MS  = 600;     // min time between blinks
-static uint32_t lastBlinkMs = 0;
-
-// --- gentle LFO follow-gravity (non-pinning)
-static uint32_t lfoLastMs = 0;
-const uint32_t LFO_PERIOD_MS = 8000; // 8s slow cycle
-const int LFO_AMPLITUDE_PX = 2;      // ± pixels to nudge when LFO active
-
 // Notification attention animation (non-blocking state machine)
 static uint8_t notifAnimState = 0; // 0=idle,1=widen,2=look,3=blink,4=restore
 static uint32_t notifAnimT0 = 0;
@@ -235,13 +208,13 @@ MoodState notif_prevMood = MS_DEFAULT;
 
 // helpers: trigger attention animation (called from notification callback)
 inline void triggerNotificationAttention() {
-  // save original sizes
-  notif_orig_wL = Eyes.eyeLwidthNext; notif_orig_wR = Eyes.eyeRwidthNext;
-  notif_orig_hL = Eyes.eyeLheightNext; notif_orig_hR = Eyes.eyeRheightNext;
+  // save original default sizes (avoid capturing "1" mid-blink)
+  notif_orig_wL = Eyes.eyeLwidthDefault; notif_orig_wR = Eyes.eyeRwidthDefault;
+  notif_orig_hL = Eyes.eyeLheightDefault; notif_orig_hR = Eyes.eyeRheightDefault;
   notif_prevMood = curMood;
   // start animation
   notifAnimState = 1; notifAnimT0 = millis();
-  // quick widen
+  // quick widen (touch only "Next" targets; do not change defaults)
   Eyes.eyeLwidthNext = notif_orig_wL + 8; Eyes.eyeRwidthNext = notif_orig_wR + 8;
   Eyes.eyeLheightNext = notif_orig_hL + 6; Eyes.eyeRheightNext = notif_orig_hR + 6;
 }
@@ -260,14 +233,17 @@ inline void updateNotificationAnim() {
       if (now - notifAnimT0 > 220) {
         Eyes.blink();
         // also smile briefly
-        setEyesMood(MS_HAPPY); moodUntil = millis() + 800;
+        setEyesMood(MS_HAPPY); moodUntil = now + 800;
         notifAnimState = 3; notifAnimT0 = now;
       }
       break;
     case 3: // restore sizes and mood
       if (now - notifAnimT0 > 180) {
+        // Restore only the "Next" sizes, keep defaults untouched to avoid side-effects
         Eyes.eyeLwidthNext = notif_orig_wL; Eyes.eyeRwidthNext = notif_orig_wR;
         Eyes.eyeLheightNext = notif_orig_hL; Eyes.eyeRheightNext = notif_orig_hR;
+        // Ensure eyes are opened in case a blink was mid-flight while not rendering eyes
+        Eyes.open();
         setEyesMood(notif_prevMood);
         notifAnimState = 0;
       }
@@ -278,9 +254,13 @@ inline void updateNotificationAnim() {
 // small micro-expression helpers
 inline void doWinkLeft(){ Eyes.blink(true, false); }
 inline void doWinkRight(){ Eyes.blink(false, true); }
-inline void doSmile(uint16_t ms=700){ setEyesMood(MS_HAPPY); moodUntil = millis() + ms; }
+inline void doSmile(uint16_t ms=700){ setEyesMood(MS_HAPPY); moodUntil = millis() + ms; } // Single call - acceptable
 
+// Implemented in motion.cpp
 inline void updateLivelinessFromIMU() {
+  // Cache current time to avoid multiple millis() calls
+  uint32_t currentMs = millis();
+
   float ax,ay,az,gx,gy,gz;
   mpuRead(ax,ay,az,gx,gy,gz);
   lpf_ax = lpf(lpf_ax, ax);
@@ -289,98 +269,92 @@ inline void updateLivelinessFromIMU() {
   float gmag = sqrtf(gx*gx + gy*gy + gz*gz);
   lpf_g = lpf(lpf_g, gmag, 0.3f);
 
-  // 1) Blink on tap
-  if (lpf_g > TAP_SPIKE_DPS && (millis() - lastBlinkMs > TAP_MIN_GAP_MS)) {
+  // 1) Blink on tap (but not when angry or furious) - with cooldown to prevent continuous blinking
+  if (lpf_g > TAP_SPIKE_DPS && (currentMs - lastBlinkMs > TAP_MIN_GAP_MS) &&
+      (currentMs - lastTapCheckMs > TAP_COOLDOWN_MS) &&
+      curMood != MS_ANGRY && curMood != MS_FURIOUS) {
     Eyes.blink();
-    lastBlinkMs = millis();
+    lastBlinkMs = currentMs;
+    lastTapCheckMs = currentMs;  // Add cooldown after successful tap detection
   }
-
-  // 2) Rarely nudge look direction IF tilt is clearly pointing somewhere
-  float pitch, roll;
-  accelToAngles(lpf_ax, lpf_ay, lpf_az, pitch, roll);
-  bool strongTilt = (fabsf(pitch) > DIR_DEADZONE_DEG) || (fabsf(roll) > DIR_DEADZONE_DEG);
-
-  if (strongTilt && (millis() - lastDirNudgeMs >= DIR_NUDGE_COOLDOWN_MS)) {
-    uint8_t d = dirFromAngles(pitch, roll);
-    if (d != DEFAULT) {
-      Eyes.setPosition(d);          // brief hint
-      lastDirNudgeMs = millis();
-    }
-    // If d == DEFAULT, do nothing—let idle wander naturally.
-  }
-
-  // optional: rare random curiosity nudge when flat
-  if (!strongTilt && (millis() - lastDirNudgeMs > 2500)) {
-    if (random(0,100) < 8) { // ~8% chance every ~2.5s
-      static const uint8_t picks[] = {N, NE, E, SE, S, SW, W, NW};
-      Eyes.setPosition(picks[random(0, 8)]);
-      lastDirNudgeMs = millis();
-    }
-  }
-
-  // 3) micro-jiggle (unchanged)
-  uint32_t now = millis();
-  if (!jiggling && now >= jiggleNextMs) {
+  // 2) Regular micro-jiggle (only when not furious - furious has its own jiggle)
+  if (!jiggling && currentMs >= jiggleNextMs && curMood != MS_FURIOUS) {
     jiggling = true;
-    jiggleEndMs = now + 120 + (uint32_t)random(0, 120);
+    jiggleEndMs = currentMs + 120 + (uint32_t)random(0, 120);
     Eyes.setHFlicker(true, 1);
     if (random(0,3)==0) Eyes.setVFlicker(true, 1);
   }
-  if (jiggling && now >= jiggleEndMs) {
+  if (jiggling && currentMs >= jiggleEndMs) {
     jiggling = false;
     Eyes.setHFlicker(false, 0);
     Eyes.setVFlicker(false, 0);
     scheduleNextJiggle();
   }
 
-}
+  // 3) Furious jiggle update (separate system)
+  if (furiousJiggling && currentMs >= furiousJiggleEndMs) {
+    furiousJiggling = false;
+    Eyes.setHFlicker(false, 0);
+    Eyes.setVFlicker(false, 0);
+  }
 
-// map pitch/roll to cardinal direction (RoboEyes::setPosition expects N, NE, ... DEFAULT)
-inline uint8_t dirFromAngles(float pitchDeg, float rollDeg) {
-  float x = rollDeg;   // left(-) / right(+)
-  float y = -pitchDeg; // up(+)/ down(-)
-  if (fabsf(x) < TILT_DEG_POSITIONS && fabsf(y) < TILT_DEG_POSITIONS) return DEFAULT;
-  float a = atan2f(y, x) * 57.2958f; // -180..180
-  if (a >= -22.5f && a < 22.5f)   return E;
-  if (a >= 22.5f  && a < 67.5f)   return NE;
-  if (a >= 67.5f  && a < 112.5f)  return N;
-  if (a >= 112.5f && a < 157.5f)  return NW;
-  if (a >= -67.5f && a < -22.5f)  return SE;
-  if (a >= -112.5f&& a < -67.5f)  return S;
-  if (a >= -157.5f&& a < -112.5f) return SW;
-  return W;
 }
 
 // schedule a tiny flicker burst every so often
 inline void scheduleNextJiggle() {
-  jiggleNextMs = millis() + 800 + (uint32_t)random(0, 2200);  // 0.8–3.0s
+  uint32_t currentMs = millis();  // Cache current time
+  jiggleNextMs = currentMs + 800 + (uint32_t)random(0, 2200);  // 0.8–3.0s
 }
 
 
-// ---------- Faces ----------
+// =============================================================================
+// FACE MODES & BLE SYSTEM
+// =============================================================================
+
+// Available face modes
 enum FaceMode : uint8_t { FACE_EYES=0, FACE_CLOCK=1, FACE_NOTIF=2, FACE_COUNT };
 FaceMode mode = FACE_EYES;
 
-// ---------- BLE / Chronos ----------
-
+// BLE / Chronos time synchronization
 ChronosESP32 chrono("PetBot");
 bool bleEnabled = true;
 
 // notif cache
 String lastNotifTitle, lastNotifBody;
 
-// helpers
+// Utility functions
 static String zeroPad2(int v){ char b[3]; snprintf(b, sizeof(b), "%02d", v); return String(b); }
 
+// Battery helpers
+static float readVBATVolts() {
+  // Average a few samples
+  uint32_t acc = 0;
+  for (uint8_t i=0;i<VBAT_SAMPLES;i++) acc += analogRead(VBAT_PIN);
+  float avg = (float)acc / (float)VBAT_SAMPLES;
+  // 12-bit raw -> pin voltage (assuming 11dB attn factory calibration)
+  // On ESP32-S3 Arduino core, analogRead returns 0..4095 for 0..~3.6V with 11dB.
+  float v_pin = (avg / 4095.0f) * 3.60f; // approximate; good enough for percentage
+  // Divider is 1:2 → battery voltage is 2x pin voltage
+  return v_pin * 2.0f;
+}
 
+static int voltsToPercent(float v) {
+  if (v <= VBAT_MIN_V) return 0;
+  if (v >= VBAT_MAX_V) return 100;
+  float pct = (v - VBAT_MIN_V) / (VBAT_MAX_V - VBAT_MIN_V) * 100.0f;
+  if (pct < 0) pct = 0; if (pct > 100) pct = 100;
+  return (int)(pct + 0.5f);
+}
 
-
-// ---------- Input handling (debounce + state machine) ----------
+// =============================================================================
+// INPUT HANDLING & USER INTERFACE
+// =============================================================================
 static bool edgeRising(uint8_t pin, bool activeHigh=true, uint16_t debounceMs=30) {
   static uint32_t t0=0; static bool lastRaw=false, stable=false;
+  uint32_t currentMs = millis();  // Cache current time to avoid multiple millis() calls
   bool raw = activeHigh ? (digitalRead(pin)==HIGH) : (digitalRead(pin)==LOW);
-  if (raw != lastRaw) { lastRaw = raw; t0 = millis(); }
-  if (millis()-t0 > debounceMs) {
+  if (raw != lastRaw) { lastRaw = raw; t0 = currentMs; }
+  if (currentMs - t0 > debounceMs) {
     if (raw != stable) { bool old=stable; stable=raw; return (stable && !old); }
   }
   return false;
@@ -478,15 +452,16 @@ void updateBleToggleUI() {
   }
 }
 
-// ---------- Drawing helpers ----------
+// =============================================================================
+// DISPLAY RENDERING FUNCTIONS
+// =============================================================================
+
 void drawCenterText(const String &l1, const String &l2="") {
   display.clearDisplay();
   display.setTextColor(SH110X_WHITE); display.setTextSize(1);
   int16_t x1,y1; uint16_t w,h;
-
   display.getTextBounds(l1,0,0,&x1,&y1,&w,&h);
   display.setCursor((SCREEN_W-w)/2, 16); display.println(l1);
-
   if (l2.length()) {
     display.getTextBounds(l2,0,0,&x1,&y1,&w,&h);
     display.setCursor((SCREEN_W-w)/2, 32); display.println(l2);
@@ -505,25 +480,16 @@ inline void drawIcon(int x, int y, const uint8_t* bmp) {
 
 // Top status bar (12 px tall): BLE + notif badge + optional play/pause hint
 void drawStatusBar(bool playingHint=false) {
-  // clear the band
   display.fillRect(0, 0, SCREEN_W, 12, SH110X_BLACK);
-
-  // BLE icon (left)
   drawIcon(0, 0, ICON_BLE_12);
   if (!bleEnabled || !chrono.isConnected()) {
-    // strike-through if disabled/disconnected
     display.drawLine(0, 11, 11, 0, SH110X_WHITE);
   }
-
-  // play/pause hint (center-left)
   if (playingHint) {
     drawIcon(16, 0, ICON_PLAY_12);
   }
-
-  // Notif bell (right)
   drawIcon(SCREEN_W - 12, 0, ICON_BELL_12);
   if (hasNotif()) {
-    // tiny badge dot
     display.fillCircle(SCREEN_W - 3, 2, 2, SH110X_WHITE);
   }
 }
@@ -532,14 +498,10 @@ void drawStatusBar(bool playingHint=false) {
 void drawModeDock(FaceMode m) {
   const int y = SCREEN_H - 16;
   display.fillRect(0, y, SCREEN_W, 16, SH110X_BLACK);
-  // grid positions
   int x1 = 20, x2 = SCREEN_W/2 - 6, x3 = SCREEN_W - 32;
-
   drawIcon(x1, y+2, ICON_EYES_12);
   drawIcon(x2, y+2, ICON_CLOCK_12);
   drawIcon(x3, y+2, ICON_BELL_12);
-
-  // underline active
   int uW = 18;
   int ux = (m==FACE_EYES) ? (x1-3) : (m==FACE_CLOCK ? (x2-3) : (x3-3));
   display.fillRect(ux, y+14, uW, 2, SH110X_WHITE);
@@ -548,7 +510,6 @@ void drawModeDock(FaceMode m) {
 // Toast overlay (centered)
 void drawToastIfAny() {
   if (millis() > toastUntil || toastText.length()==0) return;
-  // semi-opaque box (just invert band)
   int16_t x1,y1; uint16_t w,h;
   display.setTextSize(1);
   display.getTextBounds(toastText, 0,0, &x1,&y1, &w,&h);
@@ -565,69 +526,103 @@ void drawClock() {
   display.clearDisplay();
   display.setTextColor(SH110X_WHITE);
 
-  String hhmmss, dateStr;
-
+  // Build strings (with seconds)
+  String timeStr, dateStr, batStr;
   if (chrono.isConnected()) {
-    hhmmss  = chrono.getHourZ() + ":" + zeroPad2(chrono.getMinute()) + ":" + zeroPad2(chrono.getSecond());
+    timeStr = chrono.getHourZ() + ":" + zeroPad2(chrono.getMinute()) + ":" + zeroPad2(chrono.getSecond());
     dateStr = zeroPad2(chrono.getDay()) + "/" + zeroPad2(chrono.getMonth());
+    // local device battery
+    if (millis() - lastVbatReadMs > 3000 || vbatPercent < 0) {
+      vbatVolts = readVBATVolts();
+      vbatPercent = voltsToPercent(vbatVolts);
+      lastVbatReadMs = millis();
+    }
+    batStr  = String(vbatPercent) + "%";
   } else {
     time_t t = time(NULL); struct tm tmnow; localtime_r(&t, &tmnow);
     char tbuf[9]; snprintf(tbuf,sizeof(tbuf),"%02d:%02d:%02d", tmnow.tm_hour, tmnow.tm_min, tmnow.tm_sec);
     char dbuf[6]; snprintf(dbuf,sizeof(dbuf),"%02d/%02d", tmnow.tm_mday, tmnow.tm_mon+1);
-    hhmmss = tbuf; dateStr = dbuf;
+    timeStr = tbuf; dateStr = dbuf;
+    if (millis() - lastVbatReadMs > 3000 || vbatPercent < 0) {
+      vbatVolts = readVBATVolts();
+      vbatPercent = voltsToPercent(vbatVolts);
+      lastVbatReadMs = millis();
+    }
+    batStr = String(vbatPercent >= 0 ? vbatPercent : 0) + "%";
   }
 
-  // date top-left
+  // Frame
+  const int fx = 6, fy = 8;
+  const int fw = SCREEN_W - 12, fh = 48;
+  display.drawRoundRect(fx, fy, fw, fh, 6, SH110X_WHITE);
+
+  // Header row inside frame
   display.setTextSize(1);
-  display.setCursor(0,0); display.print(dateStr);
+  display.setCursor(fx + 4, fy + 2); display.print(dateStr);
+  int16_t bx1, by1; uint16_t bw, bh;
+  display.getTextBounds(batStr, 0,0, &bx1,&by1,&bw,&bh);
+  display.setCursor(fx + fw - bw - 4, fy + 2); display.print(batStr);
 
-  // time centered
-  int16_t x1,y1; uint16_t w,h;
-  display.setTextSize(3);
-  display.getTextBounds(hhmmss,0,0,&x1,&y1,&w,&h);
-  display.setCursor((SCREEN_W - w)/2, (SCREEN_H - h)/2);
-  display.print(hhmmss);
+  // Big HH:MM:SS at bottom row inside frame; scale to fit
+  int textSize = 3;
+  int16_t tx1, ty1; uint16_t tw, th;
+  for (; textSize >= 1; --textSize) {
+    display.setTextSize(textSize);
+    display.getTextBounds(timeStr, 0,0, &tx1,&ty1,&tw,&th);
+    if (tw <= (uint16_t)(fw - 8) && th <= (uint16_t)(fh - 14)) break; // leave margins
+  }
+  int tx = fx + (fw - tw)/2;
+  int ty = fy + fh - th - 3; // bottom row with small padding
+  display.setCursor(tx, ty); display.print(timeStr);
 
-  // BLE status bottom-left
-  display.setTextSize(1);
-  display.setCursor(0, SCREEN_H-10);
-  if (bleEnabled) display.print(chrono.isConnected() ? "BLE: Chronos" : "BLE: -");
-  else            display.print("BLE: OFF");
-
-  // HUD
-  drawStatusBar(true);         // show play icon as a hint if you later add audio
-  drawModeDock(FACE_CLOCK);
+  // no HUD
   drawToastIfAny();
   display.display();
-
 }
 
-// Face: Notification
+// Face: Notification popup (framed like clock)
+static uint32_t notifPopupUntil = 0;
 void drawNotif() {
   display.clearDisplay();
   display.setTextColor(SH110X_WHITE); display.setTextSize(1);
 
+  // Frame same as clock
+  const int fx = 6, fy = 8;
+  const int fw = SCREEN_W - 12, fh = 48;
+  display.drawRoundRect(fx, fy, fw, fh, 6, SH110X_WHITE);
+
   if (lastNotifTitle.length()==0 && lastNotifBody.length()==0) {
-    drawCenterText("No notifications");
-    return;
+    // placeholder
+    display.setCursor(fx+4, fy+2); display.print("No notifications");
+  } else {
+    // Title at top
+    display.setCursor(fx+4, fy+2);
+    display.println(lastNotifTitle.substring(0, (fw/6)));
+    // Body in remaining area (simple wrap)
+    String body = lastNotifBody;
+    body.replace('\n',' ');
+    display.setCursor(fx+4, fy+14);
+    display.println(body.substring(0, (fw/6)*2));
   }
-  display.setCursor(0,0);  display.println("Last notif:");
-  display.setCursor(0,12); display.println(lastNotifTitle.substring(0,21));
-  display.setCursor(0,24); display.println(lastNotifBody.substring(0, (SCREEN_W/6)*3)); // quick wrap
-  drawStatusBar(false);
-  drawModeDock(FACE_NOTIF);
+
   drawToastIfAny();
   display.display();
-
 }
 
-// ---------- Arduino setup/loop ----------
+// =============================================================================
+// ARDUINO MAIN FUNCTIONS
+// =============================================================================
+
 void setup() {
   Serial.begin(115200);
   pinMode(TOUCH_PIN, INPUT_PULLDOWN);
   pinMode(FUNC_BTN,  INPUT_PULLUP);
+  pinMode(VBAT_PIN,  INPUT);
 
   Wire.begin(I2C_SDA, I2C_SCL, 400000);
+  // Configure ADC width and attenuation for VBAT read on GPIO 7
+  analogReadResolution(12); // 12-bit ADC
+  analogSetPinAttenuation(VBAT_PIN, ADC_11db); // up to ~3.6V on pin (before divider)
   display.begin(SCREEN_ADDR, true);
   display.clearDisplay();
   display.setTextColor(SH110X_WHITE);
@@ -644,6 +639,9 @@ void setup() {
     lastNotifTitle = n.title;
     lastNotifBody = n.message;
     triggerNotificationAttention();
+    // Popup overlay for 4 seconds
+    extern uint32_t notifPopupUntil; // forward
+    notifPopupUntil = millis() + 4000;
   });
   chrono.setConnectionCallback([](bool c){ Serial.printf("Chronos %s\n", c?"connected":"disconnected"); });
   // Force BLE enabled on startup
@@ -665,6 +663,14 @@ void setup() {
   randomSeed(esp_random());
   scheduleNextJiggle();
 
+  // PSRAM check (for future audio/buffers)
+  size_t ps = ESP.getPsramSize();
+  if (ps > 0) {
+    Serial.printf("PSRAM available: %u KB free\n", ESP.getFreePsram()/1024);
+  } else {
+    Serial.println("PSRAM not detected");
+  }
+
 }
 
 void loop() {
@@ -679,13 +685,17 @@ void loop() {
     mode = (FaceMode)((mode + 1) % FACE_COUNT);
   }
 
+  // Ensure notification attention animation progresses regardless of face
+  updateNotificationAnim();
+
   // Draw active face
   switch (mode) {
     case FACE_EYES:
       // Keep the face clean: RoboEyes draws into the buffer. Do not draw HUD
       // or dock here so the face remains uncluttered and stable.
       Eyes.update();
-      // push whatever the face drew (RoboEyes no longer calls display.display())
+      // Overlay toast if any, then flush
+      drawToastIfAny();
       display.display();
       break;
 
@@ -695,6 +705,13 @@ void loop() {
 
   // small pacing to avoid excessive I2C spam on non-eyes faces
   if (mode != FACE_EYES) delay(120);
+
+  // Auto popup handling: show popup for a few seconds, then return to prior face
+  static FaceMode prevMode = FACE_EYES;
+  if (notifPopupUntil) {
+    if (mode != FACE_NOTIF) { prevMode = mode; mode = FACE_NOTIF; }
+    if (millis() > notifPopupUntil) { notifPopupUntil = 0; mode = prevMode; }
+  }
 
   // (old MPU debug prints removed)
   
@@ -713,6 +730,5 @@ void loop() {
     debugPrintIMUIfChanged();
 
   }
-
 
 }

@@ -49,7 +49,7 @@ const uint8_t PROGMEM ICON_CLOCK_12[] = {
   0x1F, 0x80
 };
 
-const uint8_t PROGMEM ICON_EYES_12[] = {
+const uint8_t PROGMEM ICON_EYE_12[] = {
   0xFF, 0xF0, 
   0xFF, 0xF0, 
   0xFF, 0xF0, 
