@@ -51,7 +51,6 @@ inline void showToast(const String& s, uint16_t ms=1200) {
 #define LED_PIN         48   // Status LED (WS2812 data pin)
 #define LED_BRIGHTNESS  60
 #define VBAT_PIN        7    // Battery voltage divider
-#define VBAT_PIN        7    // Battery voltage divider
 
 
 // Hardware object instances
@@ -64,14 +63,20 @@ Adafruit_NeoPixel strip = Adafruit_NeoPixel(1, LED_PIN, NEO_GRB + NEO_KHZ800);
 #define SCREEN_ADDR     0x3C
 Adafruit_SH1106G display(SCREEN_W, SCREEN_H, &Wire, OLED_RESET); // Must exist BEFORE RoboEyes include
 
+// Custom UTF-8 bitmap font generated from Sugiono TTF (created by tools/font_to_header.py)
+#include "include/Sugiono16.h"
+// Varsity Team digits fonts for time/date/battery
+#include "include/VarsityDigits18.h"
+#include "include/VarsityDigits12.h"
+
 // =============================================================================
 // GLOBAL CONSTANTS & CONFIGURATION
 // =============================================================================
 
 // === Emotion & Motion Detection Thresholds ===
 const float  TILT_HAPPY_DEG    = 20.0f;    // gentle tilt ⇒ happy
-const float  SHAKE_ANGRY_DPS   = 140.0f;   // quick gyro spike ⇒ angry
-const float  SHAKE_FURIOUS_DPS = 200.0f;   // higher gyro spike ⇒ furious
+const float  SHAKE_ANGRY_DPS   = 150.0f;   // quick gyro spike ⇒ angry
+const float  SHAKE_FURIOUS_DPS = 250.0f;   // higher gyro spike ⇒ furious
 const uint16_t SHAKE_MS        = 120;      // sustained spike window
 const uint16_t FURIOUS_MS      = 200;      // longer sustained spike for furious
 const float  STILL_G_THRESH    = 0.06f;    // |ax|,|ay| below this and az≈+1g → flat
@@ -95,6 +100,13 @@ const float TILT_DEG_POSITIONS = 15.0f;   // sector change threshold
 // === Debug System Constants ===
 const float ACCEL_DELTA = 0.05f;   // g-units
 const float GYRO_DELTA  = 5.0f;    // deg/s
+
+// === Frame Layout (shared by clock & notification) ===
+const int FRAME_X = 2;                 // left margin
+const int FRAME_Y = 2;                 // top margin
+const int FRAME_W = SCREEN_W - 2;      // frame width
+const int FRAME_H = 60;                // frame height
+const uint8_t FRAME_RADIUS = 8;        // corner radius
 
 // === Battery Sensing ===
 static constexpr float VBAT_MIN_V = 3.30f;  // 0%
@@ -328,12 +340,10 @@ static String zeroPad2(int v){ char b[3]; snprintf(b, sizeof(b), "%02d", v); ret
 // Battery helpers
 static float readVBATVolts() {
   // Average a few samples
-  uint32_t acc = 0;
-  for (uint8_t i=0;i<VBAT_SAMPLES;i++) acc += analogRead(VBAT_PIN);
-  float avg = (float)acc / (float)VBAT_SAMPLES;
-  // 12-bit raw -> pin voltage (assuming 11dB attn factory calibration)
-  // On ESP32-S3 Arduino core, analogRead returns 0..4095 for 0..~3.6V with 11dB.
-  float v_pin = (avg / 4095.0f) * 3.60f; // approximate; good enough for percentage
+  uint32_t mvAcc = 0;
+  for (uint8_t i=0;i<VBAT_SAMPLES;i++) mvAcc += analogReadMilliVolts(VBAT_PIN);
+  float mvAvg = (float)mvAcc / (float)VBAT_SAMPLES;
+  float v_pin = mvAvg / 1000.0f; // calibrated millivolts -> volts
   // Divider is 1:2 → battery voltage is 2x pin voltage
   return v_pin * 2.0f;
 }
@@ -551,29 +561,44 @@ void drawClock() {
     batStr = String(vbatPercent >= 0 ? vbatPercent : 0) + "%";
   }
 
-  // Frame
-  const int fx = 6, fy = 8;
-  const int fw = SCREEN_W - 12, fh = 48;
-  display.drawRoundRect(fx, fy, fw, fh, 6, SH110X_WHITE);
+  // Frame (shared layout)
+  const int fx = FRAME_X, fy = FRAME_Y;
+  const int fw = FRAME_W, fh = FRAME_H;
+  display.drawRoundRect(fx, fy, fw, fh, FRAME_RADIUS, SH110X_WHITE);
 
-  // Header row inside frame
-  display.setTextSize(1);
-  display.setCursor(fx + 4, fy + 2); display.print(dateStr);
-  int16_t bx1, by1; uint16_t bw, bh;
-  display.getTextBounds(batStr, 0,0, &bx1,&by1,&bw,&bh);
-  display.setCursor(fx + fw - bw - 4, fy + 2); display.print(batStr);
-
-  // Big HH:MM:SS at bottom row inside frame; scale to fit
-  int textSize = 3;
-  int16_t tx1, ty1; uint16_t tw, th;
-  for (; textSize >= 1; --textSize) {
-    display.setTextSize(textSize);
-    display.getTextBounds(timeStr, 0,0, &tx1,&ty1,&tw,&th);
-    if (tw <= (uint16_t)(fw - 8) && th <= (uint16_t)(fh - 14)) break; // leave margins
+  // Header row inside frame using VarsityDigits12 (date left, battery right)
+  {
+    int16_t baseY = fy + 2 + VarsityDigits12::Ascent;
+    // Date left
+    VarsityDigits12::drawTextUTF8(display, fx + 4, baseY, dateStr.c_str(), SH110X_WHITE);
+    // Battery right: compute text width via advances
+    int totalAdvance = 0;
+    for (size_t i=0;i<batStr.length();++i){
+      uint32_t cp = (uint8_t)batStr[i];
+      int16_t gi = VarsityDigits12::findGlyph(cp);
+      if (gi < 0) gi = VarsityDigits12::findGlyph('0');
+      totalAdvance += (int8_t)pgm_read_byte(&VarsityDigits12::Glyphs[gi].xAdvance);
+    }
+    int16_t bx = fx + fw - 4 - totalAdvance;
+    VarsityDigits12::drawTextUTF8(display, bx, baseY, batStr.c_str(), SH110X_WHITE);
   }
-  int tx = fx + (fw - tw)/2;
-  int ty = fy + fh - th - 3; // bottom row with small padding
-  display.setCursor(tx, ty); display.print(timeStr);
+
+  // Big HH:MM:SS using VarsityDigits18 font (baseline drawing)
+  {
+    // Measure by drawing once to compute width using glyph advances
+    int16_t x = fx + 4;
+    int16_t baseY = fy + fh - 4; // bottom padding
+    // Compute total width
+    int totalAdvance = 0;
+    for (size_t i=0;i<timeStr.length();++i){
+      uint32_t cp = (uint8_t)timeStr[i];
+      int16_t gi = VarsityDigits18::findGlyph(cp);
+      if (gi < 0) gi = VarsityDigits18::findGlyph('0');
+      totalAdvance += (int8_t)pgm_read_byte(&VarsityDigits18::Glyphs[gi].xAdvance);
+    }
+    int startX = fx + (fw - totalAdvance)/2;
+    VarsityDigits18::drawTextUTF8(display, startX, baseY, timeStr.c_str(), SH110X_WHITE);
+  }
 
   // no HUD
   drawToastIfAny();
@@ -585,24 +610,23 @@ static uint32_t notifPopupUntil = 0;
 void drawNotif() {
   display.clearDisplay();
   display.setTextColor(SH110X_WHITE); display.setTextSize(1);
-
-  // Frame same as clock
-  const int fx = 6, fy = 8;
-  const int fw = SCREEN_W - 12, fh = 48;
-  display.drawRoundRect(fx, fy, fw, fh, 6, SH110X_WHITE);
+  const int fx = FRAME_X, fy = FRAME_Y;     // outer margins (left/top)
+  const int fw = FRAME_W, fh = FRAME_H;     // frame size (width/height)
+  display.drawRoundRect(fx, fy, fw, fh, FRAME_RADIUS, SH110X_WHITE);
 
   if (lastNotifTitle.length()==0 && lastNotifBody.length()==0) {
     // placeholder
     display.setCursor(fx+4, fy+2); display.print("No notifications");
   } else {
-    // Title at top
-    display.setCursor(fx+4, fy+2);
-    display.println(lastNotifTitle.substring(0, (fw/6)));
-    // Body in remaining area (simple wrap)
-    String body = lastNotifBody;
-    body.replace('\n',' ');
-    display.setCursor(fx+4, fy+14);
-    display.println(body.substring(0, (fw/6)*2));
+    {
+      // Render title with Sugiono UTF-8 font (baseline positioning)
+      int16_t titleBaseY = fy + 2 + Sugiono16::Ascent; // tweak offset to align visually
+      Sugiono16::drawTextUTF8(display, fx+2, titleBaseY, lastNotifTitle.c_str(), SH110X_WHITE);
+    }
+    display.setTextSize(1);
+    String body = lastNotifBody; body.replace('\n',' ');
+    display.setCursor(fx+2, fy+2 + 16); // 16 ≈ title height at size 2; adjust to increase spacing
+    display.println(body.substring(0, (fw/6)*3));
   }
 
   drawToastIfAny();
@@ -628,6 +652,8 @@ void setup() {
   display.setTextColor(SH110X_WHITE);
   display.setCursor(0,0); display.println("PetBot booting...");
   display.display();
+
+  // Custom UTF-8 font is header-only; no additional init required
 
   setupRoboEyes();
   // init WS2812 status LED
@@ -729,6 +755,16 @@ void loop() {
     // Debug print MPU only if significant change
     debugPrintIMUIfChanged();
 
+  }
+
+  // Periodic VBAT debug to Serial (independent of face mode)
+  static uint32_t lastVbatLogMs = 0;
+  if (millis() - lastVbatLogMs > 3000) {
+    vbatVolts = readVBATVolts();
+    vbatPercent = voltsToPercent(vbatVolts);
+    lastVbatReadMs = millis();
+    lastVbatLogMs = lastVbatReadMs;
+    Serial.printf("VBAT: %.2f V (%d%%)\n", vbatVolts, vbatPercent);
   }
 
 }
