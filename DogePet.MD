@@ -1,10 +1,11 @@
+// PetBot v0.1 — Visual Core (non-blocking BLE toggle, debounced touch)
+// Faces: RoboEyes (default), Clock, Notifications
 // Author: [Doge De Shibe]
 // Description: ESP32-S3 Super Mini companion bot with animated eyes, motion-reactive emotions
 
 // =============================================================================
 // INCLUDES & DEPENDENCIES
 // =============================================================================
-#include <Arduino.h>
 #include <Wire.h>
 #include <esp_system.h>
 #include <Adafruit_GFX.h>
@@ -20,7 +21,6 @@
 #include "util.h"
 #include "motion.h"
 #include "audio.h"
-#include "config.h"
 
 // =============================================================================
 // GLOBAL VARIABLES & CONSTANTS
@@ -76,10 +76,33 @@ Adafruit_SH1106G display(SCREEN_W, SCREEN_H, &Wire, OLED_RESET); // Must exist B
 // GLOBAL CONSTANTS & CONFIGURATION
 // =============================================================================
 
+// === Emotion & Motion Detection Thresholds ===
+const float  TILT_HAPPY_DEG    = 10.0f;    // gentle tilt ⇒ happy
+const float  SHAKE_ANGRY_DPS   = 200.0f;   // quick gyro spike ⇒ angry
+const float  SHAKE_FURIOUS_DPS = 280.0f;   // higher gyro spike ⇒ furious
+const uint16_t SHAKE_MS        = 120;      // sustained spike window
+const uint16_t FURIOUS_MS      = 200;      // longer sustained spike for furious
+const float  STILL_G_THRESH    = 0.06f;    // |ax|,|ay| below this and az≈+1g → flat
+const float  AZ_1G_TOL         = 0.12f;    // az within 1g±tol
+
 // === Timing Constants ===
-// (moved to config.h) MOOD_HOLD_MS / FURIOUS_HOLD_MS
+const uint32_t MOOD_HOLD_MS    = 2500;     // how long to keep happy/angry
+const uint32_t FURIOUS_HOLD_MS = 4000;     // longer duration for furious
 // const uint32_t SLEEP_AFTER_MS  = 7000;     // removed: do not auto-sleep when flat
 
+// === Tap Detection Constants ===
+const float TAP_SPIKE_DPS      = 140.0f;  // quick rotation spike => blink
+const uint32_t TAP_MIN_GAP_MS  = 600;     // min time between blinks
+const uint32_t TAP_COOLDOWN_MS = 200;     // cooldown after tap detection to prevent continuous blinking
+
+// === Jiggle System Constants ===
+const uint32_t DIR_NUDGE_COOLDOWN_MS = 700;   // throttle direction nudges
+const float     DIR_DEADZONE_DEG      = 12.0f; // ignore tiny tilts (let idle roam)
+const float TILT_DEG_POSITIONS = 15.0f;   // sector change threshold
+
+// === Debug System Constants ===
+const float ACCEL_DELTA = 0.05f;   // g-units
+const float GYRO_DELTA  = 5.0f;    // deg/s
 
 // === Frame Layout (shared by clock & notification) ===
 const int FRAME_X = 0;                 // left margin
@@ -107,6 +130,8 @@ bool     shaking    = false;
 bool     furiousShaking = false;
 
 // === Timing Variables ===
+static uint32_t lastBlinkMs = 0;
+static uint32_t lastTapCheckMs = 0;       // tracks last tap detection check
 
 // === Furious Jiggle System ===
 uint32_t furiousJiggleEndMs = 0;
@@ -129,7 +154,7 @@ static int      vbatPercent = -1; // -1 when unknown
 static float last_ax = 0, last_ay = 0, last_az = 0;
 static float last_gx = 0, last_gy = 0, last_gz = 0;
 
-uint8_t volume = 55;         // 0..255
+uint8_t volume = 200;         // 0..255
 // =============================================================================
 // PSRAM-BACKED DOUBLE BUFFER (optional non-blocking flush)
 // =============================================================================
@@ -247,10 +272,55 @@ inline void doWinkLeft(){ Eyes.blink(true, false); }
 inline void doWinkRight(){ Eyes.blink(false, true); }
 inline void doSmile(uint16_t ms=700){ setEyesMood(MS_HAPPY); moodUntil = millis() + ms; } // Single call - acceptable
 
-// Liveliness logic implemented in motion.cpp
+// Implemented in motion.cpp
+inline void updateLivelinessFromIMU() {
+  // Cache current time to avoid multiple millis() calls
+  uint32_t currentMs = millis();
+
+  float ax,ay,az,gx,gy,gz;
+  mpuRead(ax,ay,az,gx,gy,gz);
+  lpf_ax = lpf(lpf_ax, ax);
+  lpf_ay = lpf(lpf_ay, ay);
+  lpf_az = lpf(lpf_az, az);
+  float gmag = sqrtf(gx*gx + gy*gy + gz*gz);
+  lpf_g = lpf(lpf_g, gmag, 0.3f);
+
+  // 1) Blink on tap (but not when angry or furious) - with cooldown to prevent continuous blinking
+  if (lpf_g > TAP_SPIKE_DPS && (currentMs - lastBlinkMs > TAP_MIN_GAP_MS) &&
+      (currentMs - lastTapCheckMs > TAP_COOLDOWN_MS) &&
+      curMood != MS_ANGRY && curMood != MS_FURIOUS) {
+    Eyes.blink();
+    lastBlinkMs = currentMs;
+    lastTapCheckMs = currentMs;  // Add cooldown after successful tap detection
+  }
+  // 2) Regular micro-jiggle (only when not furious - furious has its own jiggle)
+  if (!jiggling && currentMs >= jiggleNextMs && curMood != MS_FURIOUS) {
+    jiggling = true;
+    jiggleEndMs = currentMs + 120 + (uint32_t)random(0, 120);
+    Eyes.setHFlicker(true, 1);
+    if (random(0,3)==0) Eyes.setVFlicker(true, 1);
+  }
+  if (jiggling && currentMs >= jiggleEndMs) {
+    jiggling = false;
+    Eyes.setHFlicker(false, 0);
+    Eyes.setVFlicker(false, 0);
+    scheduleNextJiggle();
+  }
+
+  // 3) Furious jiggle update (separate system)
+  if (furiousJiggling && currentMs >= furiousJiggleEndMs) {
+    furiousJiggling = false;
+    Eyes.setHFlicker(false, 0);
+    Eyes.setVFlicker(false, 0);
+  }
+
+}
 
 // schedule a tiny flicker burst every so often
-// scheduleNextJiggle implemented in motion.cpp
+inline void scheduleNextJiggle() {
+  uint32_t currentMs = millis();  // Cache current time
+  jiggleNextMs = currentMs + 800 + (uint32_t)random(0, 2200);  // 0.8–3.0s
+}
 
 
 // =============================================================================
@@ -675,19 +745,15 @@ void setup() {
     static uint32_t lastNotifSfxMs = 0; const uint32_t NOTIF_SFX_GAP_MS = 500;
     uint32_t nowMs = millis();
     if (nowMs - lastNotifSfxMs >= NOTIF_SFX_GAP_MS) {
-      Audio::sfxNotify();
-      Audio::playCuteYes(120);
+      Audio::playCuteYes();
       lastNotifSfxMs = nowMs;
     }
     triggerNotificationAttention();
     // Popup overlay for 4 seconds
+    extern uint32_t notifPopupUntil; // forward
     notifPopupUntil = millis() + 4000;
   });
-  chrono.setConnectionCallback([](bool c){
-    Serial.printf("Chronos %s\n", c?"connected":"disconnected");
-    if (c) { Audio::sfxDroidYes(); }
-    else   { Audio::sfxDroidNo(); }
-  });
+  chrono.setConnectionCallback([](bool c){ Serial.printf("Chronos %s\n", c?"connected":"disconnected"); });
   // Force BLE enabled on startup
   bleEnabled = true;
   chrono.begin();
@@ -728,14 +794,9 @@ void loop() {
   // Face switching
   if (edgeRising(TOUCH_PIN, /*activeHigh=*/true, /*debounceMs=*/30)) {
     mode = (FaceMode)((mode + 1) % FACE_COUNT);
-    if (mode == FACE_NOTIF) {
-      Audio::sfxNotify();
-    } else if (mode == FACE_CLOCK) {
-      Audio::sfxConfirm();
-      Audio::playCuteQuestion();
-    } else {
-      Audio::sfxCurious();
-    }
+    if (mode == FACE_NOTIF) Audio::sfxDroidChirp();
+    else if (mode == FACE_CLOCK) Audio::sfxConfirm();
+    else Audio::sfxCurious();
   }
 
   // Ensure notification attention animation progresses regardless of face
@@ -749,15 +810,9 @@ void loop() {
       Eyes.update();
       // Suppress random idle SFX during jiggling or non-default moods to keep it calm
       if (!jiggling && curMood == MS_DEFAULT) {
-        // Much lower probability + cooldown to reduce talkativeness
-        static uint32_t lastChatterMs = 0;
-        const uint32_t CHATT_COOLDOWN_MS = 180000; // 3 minutes
-        uint32_t now = millis();
-        if ((esp_random() & 0x3FFF) == 0 &&             // ~1/16384 per loop
-            !Audio::isSequencePlaying() &&
-            (now - lastChatterMs > CHATT_COOLDOWN_MS)) {
-          Audio::playCuteChatterV2(600 + (esp_random()%200), 0);
-          lastChatterMs = now;
+        // Very low probability small chatter (no thinking variant)
+        if ((esp_random() & 0x7FF) == 0) { // ~1/2048 per loop
+          Audio::sfxDroidChatter();
         }
       }
       // Overlay toast if any, then flush

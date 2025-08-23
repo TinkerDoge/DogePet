@@ -2,8 +2,8 @@
 #include "motion.h"
 #include "util.h"
 #include "mpu6050.h"
-#include <Adafruit_GFX.h>
-#include <Adafruit_SH110X.h>
+#include "audio.h"
+#include "config.h"
 
 // Avoid including RoboEyes here to prevent duplicate globals from its header.
 // Instead, call small wrapper functions provided by the main sketch.
@@ -18,21 +18,11 @@ static constexpr uint8_t ROBO_TIRED   = 1;
 static constexpr uint8_t ROBO_ANGRY   = 2;
 static constexpr uint8_t ROBO_HAPPY   = 3;
 
-// Local constants (keep here to avoid cross-TU linkage issues)
-static constexpr float  TILT_HAPPY_DEG    = 20.0f;
-static constexpr float  SHAKE_ANGRY_DPS   = 140.0f;
-static constexpr float  SHAKE_FURIOUS_DPS = 200.0f;
-static constexpr uint16_t SHAKE_MS        = 120;
-static constexpr uint16_t FURIOUS_MS      = 200;
-static constexpr float  STILL_G_THRESH    = 0.06f;
-static constexpr float  AZ_1G_TOL         = 0.12f;
-static constexpr uint32_t MOOD_HOLD_MS    = 2500;
-static constexpr uint32_t FURIOUS_HOLD_MS = 4000;
-static constexpr float ACCEL_DELTA        = 0.05f;
-static constexpr float GYRO_DELTA         = 5.0f;
-static constexpr float TAP_SPIKE_DPS      = 140.0f;
-static constexpr uint32_t TAP_MIN_GAP_MS  = 600;
-static constexpr uint32_t TAP_COOLDOWN_MS = 200;
+// SFX debounce for mood changes
+static uint32_t lastMoodSfxMs = 0;
+static constexpr uint32_t MOOD_SFX_GAP_MS = 600;
+
+// Thresholds and timings centralized in config.h
 
 // Global variables (from main sketch)
 MoodState curMood = MS_DEFAULT;
@@ -57,19 +47,25 @@ static uint32_t lastTapCheckMs=0;
 extern void showToast(const String& s, uint16_t ms);
 
 void setEyesMood(MoodState m) {
+  if (m == curMood) {
+    return; // avoid retriggering same mood repeatedly
+  }
   if (curMood == MS_FURIOUS && m != MS_FURIOUS && furiousJiggling) {
     furiousJiggling = false;
     Eyes_SetHFlicker(false, 0);
     Eyes_SetVFlicker(false, 0);
   }
   curMood = m;
+  uint32_t nowMs = millis();
+  bool allowSfx = (nowMs - lastMoodSfxMs) >= MOOD_SFX_GAP_MS;
   switch (m) {
     case MS_DEFAULT: Eyes_SetMood(ROBO_DEFAULT); break;
-    case MS_HAPPY:   Eyes_SetMood(ROBO_HAPPY);   break;
-    case MS_ANGRY:   Eyes_SetMood(ROBO_ANGRY);   break;
-    case MS_FURIOUS: Eyes_SetMood(ROBO_ANGRY);   triggerFuriousJiggle(); break;
+    case MS_HAPPY:   Eyes_SetMood(ROBO_HAPPY);   if (allowSfx) Audio::playCuteHello(); break;
+    case MS_ANGRY:   Eyes_SetMood(ROBO_ANGRY);   if (allowSfx) Audio::playCuteNo(); break;
+    case MS_FURIOUS: Eyes_SetMood(ROBO_ANGRY);   triggerFuriousJiggle(); Audio::playCuteFurious(); allowSfx = true; break; // always play furious
     case MS_TIRED:   Eyes_SetMood(ROBO_TIRED);   break;
   }
+  if (allowSfx) lastMoodSfxMs = nowMs;
 }
 
 void triggerFuriousJiggle() {
@@ -118,6 +114,7 @@ void updateEmotionsFromIMU() {
   if (tap_mag > 0.5f && curMood != MS_ANGRY && curMood != MS_FURIOUS && curMood != MS_HAPPY &&
       (currentMs - lastTapCheckMs > TAP_COOLDOWN_MS)) {
     Eyes_Blink();
+    Audio::sfxBlink();
     lastTapCheckMs = currentMs;
   }
 
