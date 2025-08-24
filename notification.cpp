@@ -31,34 +31,34 @@ bool hasNotif() {
 }
 
 // Toast overlay (top banner or scatter) - optimized to reduce flicker with typewriter support
-void drawToastIfAny(Adafruit_SH1106G& display) {
+void drawToastIfAny(Adafruit_SH1106G& display, ToastState& toast) {
   uint32_t currentMs = millis();
-  bool shouldBeVisible = (currentMs <= toastUntil && toastFullText[0] != '\0');
+  bool shouldBeVisible = (currentMs <= toast.until && toast.fullText[0] != '\0');
 
   // Handle typewriter effect update
-  if (shouldBeVisible && toastTypewriter && toastTypePos < strlen(toastFullText) && 
-      (currentMs - lastToastTypeMs >= toastTypeSpeed)) {
+  if (shouldBeVisible && toast.typewriter && toast.typePos < strlen(toast.fullText) &&
+      (currentMs - toast.lastTypeMs >= toast.typeSpeed)) {
     // Add next character
-    toastText[toastTypePos] = toastFullText[toastTypePos];
-    toastText[toastTypePos + 1] = '\0'; // Null terminate
+    toast.text[toast.typePos] = toast.fullText[toast.typePos];
+    toast.text[toast.typePos + 1] = '\0'; // Null terminate
     // If scatter mode, precompute a stable random position for this character index
-    if (toastScatter) {
-      int idx = (int)toastTypePos;
+    if (toast.scatter) {
+      int idx = (int)toast.typePos;
       // constrain to visible area (avoid top 0..1 to not clip)
       scatterX[idx] = (int16_t)(esp_random() % (SCREEN_W - 6));
       scatterY[idx] = (int16_t)(2 + (esp_random() % (SCREEN_H - 10)));
     }
-    toastTypePos++;
-    lastToastTypeMs = currentMs;
+    toast.typePos++;
+    toast.lastTypeMs = currentMs;
   }
 
   // Handle toast timeout - clear the toast when it expires
-  if (toastVisible && !shouldBeVisible) {
-    toastVisible = false;
-    toastTypewriter = false;
-    toastUntil = 0; // Reset timeout
-    toastText[0] = '\0';
-    toastFullText[0] = '\0';
+  if (toast.visible && !shouldBeVisible) {
+    toast.visible = false;
+    toast.typewriter = false;
+    toast.until = 0; // Reset timeout
+    toast.text[0] = '\0';
+    toast.fullText[0] = '\0';
     return;
   }
 
@@ -66,10 +66,10 @@ void drawToastIfAny(Adafruit_SH1106G& display) {
   if (shouldBeVisible) {
     display.setTextSize(1);
 
-    if (toastScatter) {
+    if (toast.scatter) {
       // Draw each typed character at a stable random position without any frame
-      for (uint8_t i = 0; i < toastTypePos && toastFullText[i] != '\0'; ++i) {
-        char c = toastFullText[i];
+      for (uint8_t i = 0; i < toast.typePos && toast.fullText[i] != '\0'; ++i) {
+        char c = toast.fullText[i];
         if (c == ' ') continue; // skip spaces for nicer scatter
         int rx = scatterX[i];
         int ry = scatterY[i];
@@ -86,20 +86,20 @@ void drawToastIfAny(Adafruit_SH1106G& display) {
 
       // Clear banner area only (avoid touching other content)
       display.fillRect(bx, by, bw, bh, SH110X_BLACK);
-      if (!toastNoFrame) display.drawRect(bx, by, bw, bh, SH110X_WHITE);
+      if (!toast.noFrame) display.drawRect(bx, by, bw, bh, SH110X_WHITE);
 
       // Measure current text width for cursor placement
       int16_t x1, y1; uint16_t w, h;
-      display.getTextBounds(toastText, 0, 0, &x1, &y1, &w, &h);
+      display.getTextBounds(toast.text, 0, 0, &x1, &y1, &w, &h);
 
       // Left padding inside banner
       const int padX = 4;
       const int padY = 2;
       display.setCursor(bx + padX, by + padY);
-      display.print(toastText);
+      display.print(toast.text);
 
       // Add cursor for typewriter effect
-      if (toastTypewriter && toastTypePos < strlen(toastFullText)) {
+      if (toast.typewriter && toast.typePos < strlen(toast.fullText)) {
         if ((currentMs / 150) % 2 == 0) { // fast blink
           display.setCursor(bx + padX + (int)w, by + padY);
           display.print("_");

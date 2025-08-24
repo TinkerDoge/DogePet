@@ -32,41 +32,28 @@
 enum FaceMode : uint8_t;
 enum MoodState : uint8_t;
 // === Toast overlay (non-blocking notifications) ===
-// Reduced from String to fixed char array to save memory
-char  toastText[64]; // Increased size for binary sequences
-char  toastFullText[64]; // Full text to be displayed
-uint32_t toastUntil = 0;
-bool toastVisible = false; // Track if toast is currently visible to reduce flicker
-uint32_t lastToastDrawMs = 0; // Prevent too frequent toast updates
+ToastState toastState;
 bool displayNeedsUpdate = false; // Track if display content has changed
-// Typewriter effect variables
-bool toastTypewriter = false; // Enable typewriter effect
-uint8_t toastTypePos = 0; // Current position in typewriter
-uint32_t toastTypeSpeed = 100; // ms between characters
-uint32_t lastToastTypeMs = 0; // Last typewriter update time
-// Binary scatter overlay flags (exported)
-bool toastScatter = false;     // when true, draw each char at random positions
-bool toastNoFrame = false;     // when true, skip banner frame/box
 
-inline void showToastTypewriter(const String& s, uint16_t ms=3000, uint32_t typeSpeed=50) {
+inline void showToastTypewriter(ToastState& toast, const String& s, uint16_t ms=3000, uint32_t typeSpeed=50) {
   // Copy string to full text buffer
-  s.toCharArray(toastFullText, sizeof(toastFullText));
-  toastFullText[sizeof(toastFullText)-1] = '\0'; // Ensure null termination
-  toastText[0] = '\0'; // Clear current display text
-  toastUntil = millis() + ms;
-  toastVisible = true;
-  toastTypewriter = true; // Enable typewriter effect
-  toastTypePos = 0; // Start from beginning
-  toastTypeSpeed = typeSpeed;
-  lastToastTypeMs = millis();
+  s.toCharArray(toast.fullText, sizeof(toast.fullText));
+  toast.fullText[sizeof(toast.fullText)-1] = '\0'; // Ensure null termination
+  toast.text[0] = '\0'; // Clear current display text
+  toast.until = millis() + ms;
+  toast.visible = true;
+  toast.typewriter = true; // Enable typewriter effect
+  toast.typePos = 0; // Start from beginning
+  toast.typeSpeed = typeSpeed;
+  toast.lastTypeMs = millis();
   displayNeedsUpdate = true;
 }
 
-inline void showToast(const String& s, uint16_t ms=1200) {
+inline void showToast(ToastState& toast, const String& s, uint16_t ms=1200) {
   // Standard toasts: ensure banner mode (no scatter) and frame enabled
-  toastScatter = false;
-  toastNoFrame = false;
-  showToastTypewriter(s, ms, 40); // Fast typewriter (40ms between chars)
+  toast.scatter = false;
+  toast.noFrame = false;
+  showToastTypewriter(toast, s, ms, 40); // Fast typewriter (40ms between chars)
 }
 
 // Generate binary sequence for chatter communication
@@ -129,12 +116,12 @@ String generateChatterBinary() {
 }
 
 // Show binary chatter communication
-inline void showBinaryChatter() {
+inline void showBinaryChatter(ToastState& toast) {
   String binaryMsg = generateChatterBinary();
   // Enable scatter + no frame for binary chatter
-  toastScatter = true;
-  toastNoFrame = true;
-  showToastTypewriter(binaryMsg, 4000, 60); // Faster typing for more responsive feel
+  toast.scatter = true;
+  toast.noFrame = true;
+  showToastTypewriter(toast, binaryMsg, 4000, 60); // Faster typing for more responsive feel
 }
 
 // =============================================================================
@@ -176,12 +163,7 @@ const uint8_t FRAME_THICKNESS = 2;     // border thickness (UI)
 // =============================================================================
 
 // === Emotion & Motion State ===
-uint32_t lastMoveMs = 0;        // when significant motion last happened
-uint32_t moodUntil  = 0;        // temporary mood timeout
-uint32_t shakeStart = 0;        // for sustained shake
-uint32_t furiousStart = 0;      // for furious shake detection
-bool     shaking    = DEFAULT_SHAKING;
-bool     furiousShaking = DEFAULT_FURIOUS_SHAKING;
+MotionState motionState;
 
 // === Timing Variables ===
 static uint32_t lastDisplayUpdateMs = 0;
@@ -199,17 +181,7 @@ static uint32_t notifPopupUntil = 0;
 static int16_t notifScrollX = 0;
 static uint32_t notifScrollT0 = 0;
 
-// === Furious Jiggle System ===
-uint32_t furiousJiggleEndMs = 0;
-bool     furiousJiggling     = DEFAULT_FURIOUS_JIGGLING;
-
-// === Regular Jiggle System ===
-uint32_t jiggleNextMs = 0;
-uint32_t jiggleEndMs  = 0;
-bool     jiggling     = DEFAULT_JIGGLING;
-
-// === Low Pass Filtering ===
-float lpf_ax = 0, lpf_ay = 0, lpf_az = 0, lpf_g = 0;
+// MotionState tracks jiggle and filtering variables internally
 
 // === Battery sense cache ===
 uint32_t lastVbatReadMs = 0;
@@ -278,17 +250,12 @@ int32_t mpu_accel_off_x=0, mpu_accel_off_y=0, mpu_accel_off_z=0;
 int32_t mpu_gyro_off_x=0, mpu_gyro_off_y=0, mpu_gyro_off_z=0;
 
 // Emotion system (type declared in motion.h)
-extern MoodState curMood;
 
 // Note: keep the status LED behavior separate; do not change it when mood changes.
 // Implemented in motion.cpp
 // Furious jiggle functionality is implemented in motion.cpp
-void updateEmotionsFromIMU();
 
 // ===== Liveliness updater (~25Hz) =====
-
-// ---------- MPU Debug Printing ----------
-void debugPrintIMUIfChanged();
 
 // ===== Liveliness / IMU reaction =====
 static uint32_t imuTickMs = 0;
@@ -304,7 +271,7 @@ inline void triggerNotificationAttention() {
   // save original default sizes (avoid capturing "1" mid-blink)
   notif_orig_wL = Eyes.eyeLwidthDefault; notif_orig_wR = Eyes.eyeRwidthDefault;
   notif_orig_hL = Eyes.eyeLheightDefault; notif_orig_hR = Eyes.eyeRheightDefault;
-  notif_prevMood = curMood;
+  notif_prevMood = motionState.curMood;
   // start animation
   notifAnimState = 1; notifAnimT0 = millis();
   // quick widen (touch only "Next" targets; do not change defaults)
@@ -326,7 +293,7 @@ inline void updateNotificationAnim() {
       if (now - notifAnimT0 > 220) {
         Eyes.blink();
         // also smile briefly
-        setEyesMood(MS_HAPPY); moodUntil = now + 800;
+        setEyesMood(motionState, MS_HAPPY); motionState.moodUntil = now + 800;
         notifAnimState = 3; notifAnimT0 = now;
       }
       break;
@@ -337,7 +304,7 @@ inline void updateNotificationAnim() {
         Eyes.eyeLheightNext = notif_orig_hL; Eyes.eyeRheightNext = notif_orig_hR;
         // Ensure eyes are opened in case a blink was mid-flight while not rendering eyes
         Eyes.open();
-        setEyesMood(notif_prevMood);
+        setEyesMood(motionState, notif_prevMood);
         notifAnimState = 0;
       }
       break;
@@ -347,7 +314,7 @@ inline void updateNotificationAnim() {
 // small micro-expression helpers
 inline void doWinkLeft(){ Eyes.blink(true, false); }
 inline void doWinkRight(){ Eyes.blink(false, true); }
-inline void doSmile(uint16_t ms=700){ setEyesMood(MS_HAPPY); moodUntil = millis() + ms; } // Single call - acceptable
+inline void doSmile(uint16_t ms=700){ setEyesMood(motionState, MS_HAPPY); motionState.moodUntil = millis() + ms; } // Single call - acceptable
 
 
 // =============================================================================
@@ -467,12 +434,12 @@ void updateBleToggleUI() {
       if (!btn) { bleUi = BLEUI_IDLE; break; }               // released early → cancel
       if (held >= HOLD_TIME_MS) {
         if (!bleEnabled) {
-          bleEnabled = true; bleUi = BLEUI_ENABLING;  bleUiT0 = millis(); chrono.begin(); showToast("BLE: ENABLING");Serial.println("BLE: ENABLING");
+          bleEnabled = true; bleUi = BLEUI_ENABLING;  bleUiT0 = millis(); chrono.begin(); showToast(toastState, "BLE: ENABLING");Serial.println("BLE: ENABLING");
           strip.setPixelColor(0, strip.Color(0,0,255)); strip.show();
           Audio::sfxConfirm();
         }
         else {
-          bleEnabled = false; bleUi = BLEUI_DISABLING; bleUiT0 = millis(); chrono.stop(true); showToast("BLE: DISABLING");Serial.println("BLE: DISABLING");
+          bleEnabled = false; bleUi = BLEUI_DISABLING; bleUiT0 = millis(); chrono.stop(true); showToast(toastState, "BLE: DISABLING");Serial.println("BLE: DISABLING");
           strip.setPixelColor(0, 0); strip.show();
           Audio::sfxError();
         }
@@ -493,7 +460,7 @@ void updateBleToggleUI() {
       display.clearDisplay();
       display.setTextColor(SH110X_WHITE); display.setTextSize(1);
       display.setCursor(0,26);
-      showToast(bleEnabled ? "BLE: ENABLED" : "BLE: DISABLED");Serial.println(bleEnabled ? "BLE: ENABLED" : "BLE: DISABLED");
+      showToast(toastState, bleEnabled ? "BLE: ENABLED" : "BLE: DISABLED");Serial.println(bleEnabled ? "BLE: ENABLED" : "BLE: DISABLED");
       display.display();
       if (millis()-bleUiT0 > 900) bleUi = BLEUI_IDLE;
       break;
@@ -525,7 +492,7 @@ inline void updatePowerManagement() {
   uint32_t currentMs = millis();
 
   // Track activity from various sources
-  if (lastMoveMs > lastActivityMs ||
+  if (motionState.lastMoveMs > lastActivityMs ||
       (millis() - lastTouchEdgeMs < 5000) ||  // recent touch
       hasNotif() ||                          // has notifications
       bleUi != BLEUI_IDLE ||                  // BLE UI active
@@ -610,16 +577,16 @@ inline void checkMicrophoneNoise() {
       // Different reactions based on consecutive noise detections
       if (consecutiveNoiseCount >= 3) {
         // Multiple loud noises - get startled/annoyed
-        setEyesMood(MS_ANGRY);
-        moodUntil = currentMs + MOOD_HOLD_MS;
+        setEyesMood(motionState, MS_ANGRY);
+        motionState.moodUntil = currentMs + MOOD_HOLD_MS;
         if (ENABLE_MOOD_SFX) Audio::playCuteNo(200);
-        showToast("Hey! Too loud!", 1500);
+        showToast(toastState, "Hey! Too loud!", 1500);
   } else {
         // Single loud noise - curious reaction
-        setEyesMood(MS_HAPPY);
-        moodUntil = currentMs + MOOD_HOLD_MS / 2;
+        setEyesMood(motionState, MS_HAPPY);
+        motionState.moodUntil = currentMs + MOOD_HOLD_MS / 2;
         if (ENABLE_MOOD_SFX) Audio::playCuteQuestion(200);
-        showToast("Huh? What was that?", 1200);
+        showToast(toastState, "Huh? What was that?", 1200);
       }
 
       // Reset consecutive count after reaction
@@ -761,11 +728,11 @@ void setup() {
   mpuInit();
   delay(100);
   mpuCalibrate(150);
-  setEyesMood(MS_DEFAULT);  // default mood + LED color
+  setEyesMood(motionState, MS_DEFAULT);  // default mood + LED color
 
   // seed RNG for jiggle timing (ESP32); fallback if not available would be analog noise
   randomSeed(esp_random());
-  scheduleNextJiggle();
+  scheduleNextJiggle(motionState);
 
   // PSRAM check (for future audio/buffers)
   size_t ps = ESP.getPsramSize();
@@ -831,11 +798,11 @@ void loop() {
       savedTalkativeLevel = (talkativeLevel == 0) ? BOT_TALKATIVE_LEVEL : talkativeLevel;
       talkativeLevel = 0;
       if (ENABLE_MODE_SFX) Audio::sfxError();
-      showToast("Silent mode", 1200);Serial.println("Silent mode");
+      showToast(toastState, "Silent mode", 1200);Serial.println("Silent mode");
     } else {
       talkativeLevel = savedTalkativeLevel;
       if (ENABLE_MODE_SFX) Audio::sfxConfirm();
-      showToast("Chatty mode", 1200);Serial.println("Chatty mode");
+      showToast(toastState, "Chatty mode", 1200);Serial.println("Chatty mode");
     }
   }
 
@@ -863,7 +830,7 @@ void loop() {
         lastRoboEyesUpdateMs = currentMs;
       }
       // Suppress random idle SFX during jiggling or non-default moods to keep it calm
-      if (ENABLE_IDLE_CHATTER && !silentMode && !jiggling && curMood == MS_DEFAULT) {
+      if (ENABLE_IDLE_CHATTER && !silentMode && !motionState.jiggling && motionState.curMood == MS_DEFAULT) {
         // Talkativeness mapping: threshold and cooldown by level
         static uint32_t lastChatterMs = 0;
         uint8_t lvl = talkativeLevel; if (lvl > 5) lvl = 5;
@@ -891,13 +858,13 @@ void loop() {
           Audio::playCuteChatterFree(450, 1300, 0);
           // Show binary communication when chattering
           if (ENABLE_BINARY_CHATTER) {
-            showBinaryChatter();
+            showBinaryChatter(toastState);
           }
           lastChatterMs = now;
         }
       }
       // Keep toast as the very last draw when visible
-      if (toastVisible) {
+      if (toastState.visible) {
         // Disable eyes auto-flush and reserve a HUD band for toast
         gEyesAutoFlush = false;
         const int DOCK_H = 16;
@@ -906,13 +873,13 @@ void loop() {
         gEyesViewportYMax = TOAST_Y; // eyes draw only above toast band
 
         // Draw toast overlay every loop so it wins over any eyes repaint
-        drawToastIfAny(display);
+        drawToastIfAny(display, toastState);
         display.display();
         displayNeedsUpdate = false;
         lastDisplayUpdateMs = currentMs;
       } else if (currentMs - lastDisplayUpdateMs >= DISPLAY_UPDATE_MS) {
         // Normal throttled frame when no toast
-        drawToastIfAny(display); // no-op when no toast
+        drawToastIfAny(display, toastState); // no-op when no toast
         if (displayNeedsUpdate) {
           display.display();
           displayNeedsUpdate = false;
@@ -938,9 +905,9 @@ void loop() {
   }
 
   // Final overlay and single flush when a toast is visible (wins over any prior repaint)
-  if (toastVisible) {
+  if (toastState.visible) {
     // Ensure overlay wins and only we flush
-    drawToastIfAny(display);
+    drawToastIfAny(display, toastState);
     display.display();
     displayNeedsUpdate = false;
     lastDisplayUpdateMs = currentMs;
@@ -978,13 +945,13 @@ void loop() {
   static uint32_t emoT0 = 0;
   if (millis() - emoT0 > EMO_TICK_MS) {  // ~25 Hz
     emoT0 = millis();
-    updateEmotionsFromIMU();
+    updateEmotionsFromIMU(motionState, toastState);
   }
 
   // Liveliness: ~25 Hz
   if (millis() - imuTickMs > IMU_TICK_MS) {
     imuTickMs = millis();
-    updateLivelinessFromIMU();
+    updateLivelinessFromIMU(motionState);
     //debugPrintIMUIfChanged();
 
   }
