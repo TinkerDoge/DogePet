@@ -90,9 +90,12 @@ const uint8_t FRAME_RADIUS = 8;        // corner radius
 const uint8_t FRAME_THICKNESS = 2;     // border thickness in pixels
 
 // === Battery Sensing ===
-static constexpr float VBAT_MIN_V = 3.30f;  // 0%
-static constexpr float VBAT_MAX_V = 4.20f;  // 100%
+static constexpr float VBAT_MIN_V = 3.26f;  // 0%
+static constexpr float VBAT_MAX_V = 4.18f;  // 100%
 static constexpr uint8_t VBAT_SAMPLES = 12; // simple averaging
+// Calibrate ADC/divider scaling so displayed voltage matches multimeter
+// Example: multimeter 4.18V vs measured 3.97V -> scale ≈ 1.0527
+static constexpr float VBAT_CAL = 1.053f;
 
 // =============================================================================
 // GLOBAL VARIABLES
@@ -279,7 +282,7 @@ static float readVBATVolts() {
   float mvAvg = (float)mvAcc / (float)VBAT_SAMPLES;
   float v_pin = mvAvg / 1000.0f; // calibrated millivolts -> volts
   // Divider is 1:2 → battery voltage is 2x pin voltage
-  return v_pin * 2.0f;
+  return v_pin * 2.0f * VBAT_CAL;
 }
 
 static int voltsToPercent(float v) {
@@ -818,7 +821,7 @@ void loop() {
     vbatPercent = voltsToPercent(vbatVolts);
     lastVbatReadMs = millis();
     lastVbatLogMs = lastVbatReadMs;
-    //Serial.printf("VBAT: %.2f V (%d%%)\n", vbatVolts, vbatPercent);
+    Serial.printf("VBAT: %.2f V (%d%%)\n", vbatVolts, vbatPercent);
   }
 
 }

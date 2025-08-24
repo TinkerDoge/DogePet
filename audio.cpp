@@ -548,15 +548,15 @@ void sfxDroidChirp(){ // Vector-inspired curious chirp: melodic ascending with p
   static const NoteEv CHATT_4[] = { // questiony
     {79,70,165,WAVE_SINE}, {84,80,170,WAVE_SINE}, {86,120,180,WAVE_SINE}
   };
-  void playCuteChatter(uint16_t d){
-    int r = (int)(esp_random() % 4);
-    switch (r){
-      case 0: startSequence(CHATT_1, ARRLEN(CHATT_1), d); break;
-      case 1: startSequence(CHATT_2, ARRLEN(CHATT_2), d); break;
-      case 2: startSequence(CHATT_3, ARRLEN(CHATT_3), d); break;
-      default:startSequence(CHATT_4, ARRLEN(CHATT_4), d); break;
-    }
-  }
+  //void playCuteChatter(uint16_t d){
+  //  int r = (int)(esp_random() % 4);
+  //  switch (r){
+  //    case 0: startSequence(CHATT_1, ARRLEN(CHATT_1), d); break;
+  //    case 1: startSequence(CHATT_2, ARRLEN(CHATT_2), d); break;
+  //    case 2: startSequence(CHATT_3, ARRLEN(CHATT_3), d); break;
+  //    default:startSequence(CHATT_4, ARRLEN(CHATT_4), d); break;
+  //  }
+  //}
   void playCuteStartup(uint16_t d){ playCuteHello(d); }
   void playCuteFurious(uint16_t d){ startSequence(CUTE_NO, ARRLEN(CUTE_NO), d); }
 
