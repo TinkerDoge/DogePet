@@ -8,6 +8,8 @@
 
 #pragma once
 #include <Arduino.h>
+#include <stdint.h>  // Add standard integer types
+#include "config.h"  // Include configuration constants
 
 namespace Audio {
 
@@ -38,11 +40,20 @@ namespace Audio {
   // Layered bleep (2 short overlapping voices for "droid" feel)
   void playBleep(const SfxParams& a, const SfxParams& b);
 
+  // === Microphone Input Support ===
+  bool beginMicrophone(uint32_t sampleRate = MIC_SAMPLE_RATE);
+  void endMicrophone();
+  float getMicrophoneLevel();  // Returns current RMS level
+  bool isLoudNoiseDetected();  // Returns true if noise above threshold
+
+  // Audio feedback prevention
+  bool isAudioPlaying();       // Returns true if any audio is currently playing
+  bool isMicrophoneInCooldown(); // Returns true if mic is in cooldown after audio
+
   // Stop all voices immediately
   void stopAll();
 
   // Expressive presets (layered, with variation)
-  void sfxHappy();        // rising chirps
   void sfxAngry();        // buzzy square bursts
   void sfxFurious();      // alternating alarm
   void sfxCurious();      // short inquisitive bleep
@@ -50,19 +61,13 @@ namespace Audio {
   void sfxNotify();       // message arrival
   void sfxConfirm();      // UI confirm up
   void sfxError();        // UI error down
-  void sfxStartup();      // boot sequence
 
   // Droid-style extended presets
-  void sfxDroidChirp();
-  void sfxDroidQuestion();
-  void sfxDroidExclaim();
   void sfxDroidYes();
   void sfxDroidNo();
-  void sfxDroidThinking();
-  void sfxDroidChatter();
+  // removed unused: sfxDroidChirp/Question/Exclaim/Thinking/Chatter
 
-  // Generate a short "sentence" of beeps lasting about msTotal
-  void droidSpeak(uint16_t msTotal);
+  // removed unused: droidSpeak
 
   // ===== Non-blocking cute sequencer =====
   struct NoteEv {
@@ -82,8 +87,12 @@ namespace Audio {
   void playCuteYes(uint16_t startDelayMs=0);
   void playCuteNo(uint16_t startDelayMs=0);
   void playCuteSleep(uint16_t startDelayMs=0);
-  void playCuteChatter(uint16_t startDelayMs=0);
-  void playCuteChatterV2(uint16_t totalMs=600, uint16_t startDelayMs=0);
+  // removed unused: playCuteChatter, playCuteChatterV2
+  // Variable-length procedural chatter: generates a fresh melody each call
+  void playCuteChatterFree(uint16_t minTotalMs=450, uint16_t maxTotalMs=1300, uint16_t startDelayMs=0);
+  // Binary-ish chatter APIs (non-blocking via sequencer)
+  void binaryTalkRandom(uint16_t minTotalMs=550, uint16_t maxTotalMs=1200, uint16_t startDelayMs=0);
+  void binaryTalkFromBytes(const uint8_t* data, size_t len, uint16_t bitMinMs=60, uint16_t bitMaxMs=110, uint16_t startDelayMs=0);
   void playCuteStartup(uint16_t startDelayMs=0);
   void playCuteFurious(uint16_t startDelayMs=0);
   

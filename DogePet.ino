@@ -5,6 +5,7 @@
 // INCLUDES & DEPENDENCIES
 // =============================================================================
 #include <Arduino.h>
+#include <stdint.h>  // Standard integer types - must come early
 #include <Wire.h>
 #include <esp_system.h>
 #include <Adafruit_GFX.h>
@@ -14,13 +15,15 @@
 
 
 // Custom headers
-#include "icons.h"
+#include "icon/icons_auto.h"
 #include "mpu6050.h"
 
 #include "util.h"
 #include "motion.h"
 #include "audio.h"
 #include "config.h"
+#include "clock.h"
+#include "notification.h"
 
 // =============================================================================
 // GLOBAL VARIABLES & CONSTANTS
@@ -29,73 +32,144 @@
 enum FaceMode : uint8_t;
 enum MoodState : uint8_t;
 // === Toast overlay (non-blocking notifications) ===
-String  toastText;
+// Reduced from String to fixed char array to save memory
+char  toastText[64]; // Increased size for binary sequences
+char  toastFullText[64]; // Full text to be displayed
 uint32_t toastUntil = 0;
+bool toastVisible = false; // Track if toast is currently visible to reduce flicker
+uint32_t lastToastDrawMs = 0; // Prevent too frequent toast updates
+bool displayNeedsUpdate = false; // Track if display content has changed
+// Typewriter effect variables
+bool toastTypewriter = false; // Enable typewriter effect
+uint8_t toastTypePos = 0; // Current position in typewriter
+uint32_t toastTypeSpeed = 100; // ms between characters
+uint32_t lastToastTypeMs = 0; // Last typewriter update time
+// Binary scatter overlay flags (exported)
+bool toastScatter = false;     // when true, draw each char at random positions
+bool toastNoFrame = false;     // when true, skip banner frame/box
+
+inline void showToastTypewriter(const String& s, uint16_t ms=3000, uint32_t typeSpeed=50) {
+  // Copy string to full text buffer
+  s.toCharArray(toastFullText, sizeof(toastFullText));
+  toastFullText[sizeof(toastFullText)-1] = '\0'; // Ensure null termination
+  toastText[0] = '\0'; // Clear current display text
+  toastUntil = millis() + ms;
+  toastVisible = true;
+  toastTypewriter = true; // Enable typewriter effect
+  toastTypePos = 0; // Start from beginning
+  toastTypeSpeed = typeSpeed;
+  lastToastTypeMs = millis();
+  displayNeedsUpdate = true;
+}
 
 inline void showToast(const String& s, uint16_t ms=1200) {
-  toastText = s; toastUntil = millis() + ms;
+  // Standard toasts: ensure banner mode (no scatter) and frame enabled
+  toastScatter = false;
+  toastNoFrame = false;
+  showToastTypewriter(s, ms, 40); // Fast typewriter (40ms between chars)
+}
+
+// Generate binary sequence for chatter communication
+String generateChatterBinary() {
+  String binary = "";
+  
+  // Different binary patterns for variety
+  int pattern = random(0, 4);
+  
+  switch (pattern) {
+    case 0: // Classic binary groups
+      {
+        int groups = random(3, 5); // 3-4 groups
+        for (int g = 0; g < groups; g++) {
+          if (g > 0) binary += " "; // Space between groups
+          int bits = random(4, 7); // 4-6 bits per group
+          for (int b = 0; b < bits; b++) {
+            binary += (random(0, 2) == 0) ? "0" : "1";
+          }
+        }
+      }
+      break;
+      
+    case 1: // ASCII-like patterns (common binary values)
+      {
+        const char* patterns[] = {"01001000", "01100101", "01101100", "01101111", "01011111"};
+        int count = random(2, 4);
+        for (int i = 0; i < count; i++) {
+          if (i > 0) binary += " ";
+          binary += patterns[random(0, 5)];
+        }
+      }
+      break;
+      
+    case 2: // Header-like pattern
+      binary = "10101011 ";
+      for (int i = 0; i < random(2, 4); i++) {
+        for (int b = 0; b < 8; b++) {
+          binary += (random(0, 2) == 0) ? "0" : "1";
+        }
+        if (i < 2) binary += " ";
+      }
+      break;
+      
+    case 3: // Mixed short/long groups
+      {
+        int totalGroups = random(3, 6);
+        for (int g = 0; g < totalGroups; g++) {
+          if (g > 0) binary += " ";
+          int bits = (g % 2 == 0) ? random(3, 5) : random(6, 9); // Alternate short/long
+          for (int b = 0; b < bits; b++) {
+            binary += (random(0, 2) == 0) ? "0" : "1";
+          }
+        }
+      }
+      break;
+  }
+  
+  return binary;
+}
+
+// Show binary chatter communication
+inline void showBinaryChatter() {
+  String binaryMsg = generateChatterBinary();
+  // Enable scatter + no frame for binary chatter
+  toastScatter = true;
+  toastNoFrame = true;
+  showToastTypewriter(binaryMsg, 4000, 60); // Faster typing for more responsive feel
 }
 
 // =============================================================================
 // HARDWARE CONFIGURATION
 // =============================================================================
-
-// Pin definitions
-#define I2C_SDA         9
-#define I2C_SCL         8
-#define TOUCH_PIN       13   // HIGH when touched (TPS223)
-#define FUNC_BTN        1    // Hold to toggle BLE
-#define I2S_LRC         10   // WS/LRCLK
-#define I2S_BCLK        11   // BCLK
-#define I2S_DO          12   // SD out -> MAX98357A DIN
-#define I2S_DI          2    // (unused)
-#define LED_PIN         48   // Status LED (WS2812 data pin)
-#define LED_BRIGHTNESS  60
-#define VBAT_PIN        7    // Battery voltage divider
-
-
 // Hardware object instances
 Adafruit_NeoPixel strip = Adafruit_NeoPixel(1, LED_PIN, NEO_GRB + NEO_KHZ800);
 
-// OLED Display configuration
-#define SCREEN_W        128
-#define SCREEN_H        64
-#define OLED_RESET      -1
-#define SCREEN_ADDR     0x3C
+// OLED Display configuration moved to config.h
 Adafruit_SH1106G display(SCREEN_W, SCREEN_H, &Wire, OLED_RESET); // Must exist BEFORE RoboEyes include
 
 // Custom fonts generated by tools/font_to_header.py
 // Time (HH:MM:SS)
 #include "include/TechTime37.h"
 // Numbers for date & battery
-#include "include/PixeboyNum20.h"
+#include "include/Pixeboy20.h"
 // Notification (Vietnamese-capable)
-#include "include/ShopeeRegular18.h"
+#include "include/ShopeeRegular12.h"
 
 // =============================================================================
 // GLOBAL CONSTANTS & CONFIGURATION
 // =============================================================================
 
-// === Timing Constants ===
-// (moved to config.h) MOOD_HOLD_MS / FURIOUS_HOLD_MS
+// === Timing Constants ==
 // const uint32_t SLEEP_AFTER_MS  = 7000;     // removed: do not auto-sleep when flat
-
 
 // === Frame Layout (shared by clock & notification) ===
 const int FRAME_X = 0;                 // left margin
 const int FRAME_Y = 0;                 // top margin
 const int FRAME_W = SCREEN_W - 0;      // frame width
 const int FRAME_H = 64;                // frame height
-const uint8_t FRAME_RADIUS = 8;        // corner radius
-const uint8_t FRAME_THICKNESS = 2;     // border thickness in pixels
+const uint8_t FRAME_RADIUS = 8;        // corner radius (UI)
+const uint8_t FRAME_THICKNESS = 2;     // border thickness (UI)
 
-// === Battery Sensing ===
-static constexpr float VBAT_MIN_V = 3.26f;  // 0%
-static constexpr float VBAT_MAX_V = 4.18f;  // 100%
-static constexpr uint8_t VBAT_SAMPLES = 12; // simple averaging
-// Calibrate ADC/divider scaling so displayed voltage matches multimeter
-// Example: multimeter 4.18V vs measured 3.97V -> scale ≈ 1.0527
-static constexpr float VBAT_CAL = 1.053f;
+// === Battery Sensing === (values come from config.h)
 
 // =============================================================================
 // GLOBAL VARIABLES
@@ -106,39 +180,55 @@ uint32_t lastMoveMs = 0;        // when significant motion last happened
 uint32_t moodUntil  = 0;        // temporary mood timeout
 uint32_t shakeStart = 0;        // for sustained shake
 uint32_t furiousStart = 0;      // for furious shake detection
-bool     shaking    = false;
-bool     furiousShaking = false;
+bool     shaking    = DEFAULT_SHAKING;
+bool     furiousShaking = DEFAULT_FURIOUS_SHAKING;
 
 // === Timing Variables ===
+static uint32_t lastDisplayUpdateMs = 0;
+static uint32_t lastRoboEyesUpdateMs = 0;
+
+// === Power Management ===
+static bool isSleeping = false;
+static bool isDimmed = false;
+static uint32_t lastActivityMs = 0;
+
+// Forward declaration for notification popup
+static uint32_t notifPopupUntil = 0;
+
+// Notification scroll state variables
+static int16_t notifScrollX = 0;
+static uint32_t notifScrollT0 = 0;
 
 // === Furious Jiggle System ===
 uint32_t furiousJiggleEndMs = 0;
-bool     furiousJiggling     = false;
+bool     furiousJiggling     = DEFAULT_FURIOUS_JIGGLING;
 
 // === Regular Jiggle System ===
 uint32_t jiggleNextMs = 0;
 uint32_t jiggleEndMs  = 0;
-bool     jiggling     = false;
+bool     jiggling     = DEFAULT_JIGGLING;
 
 // === Low Pass Filtering ===
 float lpf_ax = 0, lpf_ay = 0, lpf_az = 0, lpf_g = 0;
 
 // === Battery sense cache ===
-static uint32_t lastVbatReadMs = 0;
-static float    vbatVolts = 0.0f;
-static int      vbatPercent = -1; // -1 when unknown
+uint32_t lastVbatReadMs = 0;
+float    vbatVolts = 0.0f;
+int      vbatPercent = -1; // -1 when unknown
+bool     batteryCharging = false; // true when VBAT sustained high
+uint8_t  vbatChargeCount = 0;     // consecutive high-read counter
+// Chatty/silent state
+bool            silentMode = false;
+uint8_t         talkativeLevel = BOT_TALKATIVE_LEVEL;   // runtime talk level (0..5)
+uint8_t         savedTalkativeLevel = BOT_TALKATIVE_LEVEL; // last non-zero level
+// Touch edge tracker to improve responsiveness on non-eyes faces
+static uint32_t lastTouchEdgeMs = 0;
 
 // === Debug System Variables ===
 static float last_ax = 0, last_ay = 0, last_az = 0;
 static float last_gx = 0, last_gy = 0, last_gz = 0;
 
-uint8_t volume = 55;         // 0..255
-// =============================================================================
-// PSRAM-BACKED DOUBLE BUFFER (optional non-blocking flush)
-// =============================================================================
-
-
-// (double-buffering removed)
+uint8_t volume = AUDIO_DEFAULT_VOLUME;         // 0..255
 
 // =============================================================================
 // ROBOEYES ANIMATION SYSTEM
@@ -148,20 +238,29 @@ uint8_t volume = 55;         // 0..255
 #include <FluxGarage_RoboEyes.h>
 
 roboEyes Eyes;
+// Control RoboEyes flushing/viewport so HUD/toast can overlay without flicker
+bool gEyesAutoFlush = true;   // default true; disabled while toast is visible
+int  gEyesViewportYMax = 0;   // 0 = full screen, else max Y (exclusive)
 
 // Thin wrappers so motion.cpp can control RoboEyes without including its header
 void Eyes_SetMood(uint8_t mood) { Eyes.setMood(mood); }
 void Eyes_SetHFlicker(bool on, int level) { Eyes.setHFlicker(on, level); }
 void Eyes_SetVFlicker(bool on, int level) { Eyes.setVFlicker(on, level); }
-void Eyes_Blink() { Eyes.blink(); }
+void Eyes_Blink() { 
+  Eyes.blink(); 
+  // Play blink SFX if enabled and not silent
+  if (ENABLE_TAP_SFX && !silentMode) {
+    Audio::sfxBlink();
+  }
+}
 
 // REMOVED: Furious jiggle variables moved to GLOBAL VARIABLES section above
 
 void setupRoboEyes() {
-  Eyes.begin(SCREEN_W, SCREEN_H, 60);
+  Eyes.begin(SCREEN_W, SCREEN_H, 50);
   Eyes.setWidth(40, 40);
   Eyes.setHeight(26, 26);
-  Eyes.setBorderradius(5, 5);
+  Eyes.setBorderradius(8, 8);
   Eyes.setSpacebetween(10);
   // Give the internal idle engine room to roam
   Eyes.setAutoblinker(true, 3, 4);  // avg ~3s with ±4s jitter
@@ -250,11 +349,6 @@ inline void doWinkLeft(){ Eyes.blink(true, false); }
 inline void doWinkRight(){ Eyes.blink(false, true); }
 inline void doSmile(uint16_t ms=700){ setEyesMood(MS_HAPPY); moodUntil = millis() + ms; } // Single call - acceptable
 
-// Liveliness logic implemented in motion.cpp
-
-// schedule a tiny flicker burst every so often
-// scheduleNextJiggle implemented in motion.cpp
-
 
 // =============================================================================
 // FACE MODES & BLE SYSTEM
@@ -265,33 +359,18 @@ enum FaceMode : uint8_t { FACE_EYES=0, FACE_CLOCK=1, FACE_NOTIF=2, FACE_COUNT };
 FaceMode mode = FACE_EYES;
 
 // BLE / Chronos time synchronization
-ChronosESP32 chrono("PetBot");
+ChronosESP32 chrono(BLE_DEVICE_NAME);
 bool bleEnabled = true;
 
-// notif cache
-String lastNotifTitle, lastNotifBody;
+// notif cache - optimized to fixed char arrays
+char lastNotifTitle[64];
+char lastNotifBody[128];
 
 // Utility functions
 static String zeroPad2(int v){ char b[3]; snprintf(b, sizeof(b), "%02d", v); return String(b); }
 
 // Battery helpers
-static float readVBATVolts() {
-  // Average a few samples
-  uint32_t mvAcc = 0;
-  for (uint8_t i=0;i<VBAT_SAMPLES;i++) mvAcc += analogReadMilliVolts(VBAT_PIN);
-  float mvAvg = (float)mvAcc / (float)VBAT_SAMPLES;
-  float v_pin = mvAvg / 1000.0f; // calibrated millivolts -> volts
-  // Divider is 1:2 → battery voltage is 2x pin voltage
-  return v_pin * 2.0f * VBAT_CAL;
-}
-
-static int voltsToPercent(float v) {
-  if (v <= VBAT_MIN_V) return 0;
-  if (v >= VBAT_MAX_V) return 100;
-  float pct = (v - VBAT_MIN_V) / (VBAT_MAX_V - VBAT_MIN_V) * 100.0f;
-  if (pct < 0) pct = 0; if (pct > 100) pct = 100;
-  return (int)(pct + 0.5f);
-}
+// Battery functions moved to clock.cpp
 
 // =============================================================================
 // INPUT HANDLING & USER INTERFACE
@@ -307,12 +386,30 @@ static bool edgeRising(uint8_t pin, bool activeHigh=true, uint16_t debounceMs=30
   return false;
 }
 
+// Detect triple-tap on a digital input (rising edges) within a time window
+static bool tripleTap(uint8_t pin, bool activeHigh=true, uint16_t debounceMs=12, uint16_t windowMs=650) {
+  static uint8_t  tapCount = 0;
+  static uint32_t windowStart = 0;
+  if (edgeRising(pin, activeHigh, debounceMs)) {
+    uint32_t now = millis();
+    lastTouchEdgeMs = now;
+    if (tapCount == 0 || (now - windowStart) > windowMs) {
+      tapCount = 1; windowStart = now; return false;
+    }
+    tapCount++;
+    if (tapCount >= 3) { tapCount = 0; return true; }
+  }
+  // expire window
+  if (tapCount > 0 && (millis() - windowStart) > windowMs) tapCount = 0;
+  return false;
+}
+
 // FUNC button hold → BLE toggle (non-blocking)
 enum BleUiState { BLEUI_IDLE, BLEUI_PROMPT, BLEUI_ENABLING, BLEUI_DISABLING, BLEUI_DONE };
 BleUiState bleUi = BLEUI_IDLE;
 uint32_t   bleUiT0 = 0;
 uint32_t   btnDownT0 = 0;
-const uint32_t HOLD_TIME_MS = 2000;
+// HOLD_TIME_MS comes from config.h
 
 void updateBleToggleUI() {
   bool btn = (digitalRead(FUNC_BTN)==LOW);
@@ -370,12 +467,12 @@ void updateBleToggleUI() {
       if (!btn) { bleUi = BLEUI_IDLE; break; }               // released early → cancel
       if (held >= HOLD_TIME_MS) {
         if (!bleEnabled) {
-          bleEnabled = true; bleUi = BLEUI_ENABLING;  bleUiT0 = millis(); chrono.begin(); showToast("BLE: ENABLING");
+          bleEnabled = true; bleUi = BLEUI_ENABLING;  bleUiT0 = millis(); chrono.begin(); showToast("BLE: ENABLING");Serial.println("BLE: ENABLING");
           strip.setPixelColor(0, strip.Color(0,0,255)); strip.show();
           Audio::sfxConfirm();
         }
         else {
-          bleEnabled = false; bleUi = BLEUI_DISABLING; bleUiT0 = millis(); chrono.stop(true); showToast("BLE: DISABLING");
+          bleEnabled = false; bleUi = BLEUI_DISABLING; bleUiT0 = millis(); chrono.stop(true); showToast("BLE: DISABLING");Serial.println("BLE: DISABLING");
           strip.setPixelColor(0, 0); strip.show();
           Audio::sfxError();
         }
@@ -396,7 +493,7 @@ void updateBleToggleUI() {
       display.clearDisplay();
       display.setTextColor(SH110X_WHITE); display.setTextSize(1);
       display.setCursor(0,26);
-      showToast(bleEnabled ? "BLE: ENABLED" : "BLE: DISABLED");
+      showToast(bleEnabled ? "BLE: ENABLED" : "BLE: DISABLED");Serial.println(bleEnabled ? "BLE: ENABLED" : "BLE: DISABLED");
       display.display();
       if (millis()-bleUiT0 > 900) bleUi = BLEUI_IDLE;
       break;
@@ -407,39 +504,7 @@ void updateBleToggleUI() {
 // DISPLAY RENDERING FUNCTIONS
 // =============================================================================
 
-// --- UI helpers (shared) ---
-static inline void drawSharedFrame(int fx, int fy, int fw, int fh) {
-  for (uint8_t t=0; t<FRAME_THICKNESS; ++t) {
-    display.drawRoundRect(fx + t, fy + t, fw - 2*t, fh - 2*t, FRAME_RADIUS, SH110X_WHITE);
-  }
-}
-
-static inline int measureAdvance_Pixeboy(const String &s) {
-  int adv = 0;
-  for (size_t i=0;i<s.length();++i) {
-    uint8_t cp = (uint8_t)s[i];
-    int16_t gi = PixeboyNum20::findGlyph(cp);
-    if (gi < 0) gi = PixeboyNum20::findGlyph('0');
-    adv += (int8_t)pgm_read_byte(&PixeboyNum20::Glyphs[gi].xAdvance);
-  }
-  return adv;
-}
-
-static inline int headerBaselineY(int fy) {
-  return fy + 2 + PixeboyNum20::Ascent;
-}
-
-static inline int headerBottomY(int fy) {
-  return headerBaselineY(fy) - PixeboyNum20::Descent; // Descent is negative
-}
-
-static inline void drawHeaderDateBattery(int fx, int fy, int fw, const String &dateStr, const String &batStr) {
-  int16_t baseY = headerBaselineY(fy);
-  PixeboyNum20::drawTextUTF8(display, fx + 4, baseY, dateStr.c_str(), SH110X_WHITE);
-  int bw = measureAdvance_Pixeboy(batStr);
-  int16_t bx = fx + fw - 4 - bw;
-  PixeboyNum20::drawTextUTF8(display, bx, baseY, batStr.c_str(), SH110X_WHITE);
-}
+// UI helper functions moved to individual modules
 
 void drawCenterText(const String &l1, const String &l2="") {
   display.clearDisplay();
@@ -453,9 +518,121 @@ void drawCenterText(const String &l1, const String &l2="") {
   }
   display.display();
 }
-// returns whether we have any cached notification text
-inline bool hasNotif() {
-  return lastNotifTitle.length() || lastNotifBody.length();
+// hasNotif() function moved to notification.cpp
+
+// Power management: track activity and manage sleep/dim states
+inline void updatePowerManagement() {
+  uint32_t currentMs = millis();
+
+  // Track activity from various sources
+  if (lastMoveMs > lastActivityMs ||
+      (millis() - lastTouchEdgeMs < 5000) ||  // recent touch
+      hasNotif() ||                          // has notifications
+      bleUi != BLEUI_IDLE ||                  // BLE UI active
+      notifPopupUntil > currentMs) {          // popup active
+    lastActivityMs = currentMs;
+  }
+
+  // Check for dimming (LED only, display doesn't support brightness)
+  if (!isSleeping && !isDimmed && (currentMs - lastActivityMs > DIM_AFTER_MS)) {
+    isDimmed = true;
+    if (ENABLE_LED_STATUS) {
+      strip.setBrightness(SLEEP_BRIGHTNESS);
+      strip.show();
+    }
+    Serial.println("LED dimmed for power saving");
+  }
+
+  // Check for sleep (clear display and dim LED)
+  if (!isSleeping && (currentMs - lastActivityMs > SLEEP_AFTER_MS)) {
+    isSleeping = true;
+    isDimmed = true;
+    display.clearDisplay();
+    display.display();  // Update display to show blank
+    if (ENABLE_LED_STATUS) {
+      strip.setBrightness(1);
+      strip.show();
+    }
+    Serial.println("Entering sleep mode for power saving");
+  }
+}
+
+// Wake from sleep/dim on activity
+inline void wakeUp() {
+  if (isSleeping || isDimmed) {
+    isSleeping = false;
+    isDimmed = false;
+    if (ENABLE_LED_STATUS) {
+      strip.setBrightness(LED_BRIGHTNESS);
+      strip.show();
+    }
+    displayNeedsUpdate = true; // Force display refresh after waking up
+    Serial.println("Waking up from power saving mode");
+  }
+}
+
+// Microphone noise detection and reaction
+inline void checkMicrophoneNoise() {
+  if (!ENABLE_MIC_LISTENING) return;
+
+  static uint32_t lastNoiseReactionMs = 0;
+  static uint32_t consecutiveNoiseCount = 0;
+
+  // Check noise level periodically
+  static uint32_t lastMicCheckMs = 0;
+  uint32_t currentMs = millis();
+  if (currentMs - lastMicCheckMs < MIC_CHECK_INTERVAL) return;
+  lastMicCheckMs = currentMs;
+
+  float micLevel = Audio::getMicrophoneLevel();
+  bool isLoud = Audio::isLoudNoiseDetected();
+
+  // Debug output (optional - remove for production)
+  static uint32_t lastDebugMs = 0;
+  if (currentMs - lastDebugMs > 1000) {
+    bool audioPlaying = Audio::isAudioPlaying();
+    bool micCooldown = Audio::isMicrophoneInCooldown();
+    Serial.printf("Mic Level: %.2f (Threshold: %.2f, Gain: 64x) | Audio: %s | Cooldown: %s\n",
+                  micLevel, MIC_NOISE_THRESHOLD,
+                  audioPlaying ? "PLAYING" : "IDLE",
+                  micCooldown ? "YES" : "NO");
+    lastDebugMs = currentMs;
+  }
+
+  if (isLoud) {
+    consecutiveNoiseCount++;
+    wakeUp(); // Wake up on loud noise
+
+    // Only react if enough time has passed since last reaction
+    if (currentMs - lastNoiseReactionMs >= MIC_COOLDOWN_MS) {
+      Serial.printf("Loud noise detected! Level: %.2f\n", micLevel);
+
+      // Different reactions based on consecutive noise detections
+      if (consecutiveNoiseCount >= 3) {
+        // Multiple loud noises - get startled/annoyed
+        setEyesMood(MS_ANGRY);
+        moodUntil = currentMs + MOOD_HOLD_MS;
+        if (ENABLE_MOOD_SFX) Audio::playCuteNo(200);
+        showToast("Hey! Too loud!", 1500);
+  } else {
+        // Single loud noise - curious reaction
+        setEyesMood(MS_HAPPY);
+        moodUntil = currentMs + MOOD_HOLD_MS / 2;
+        if (ENABLE_MOOD_SFX) Audio::playCuteQuestion(200);
+        showToast("Huh? What was that?", 1200);
+      }
+
+      // Reset consecutive count after reaction
+      consecutiveNoiseCount = 0;
+
+      lastNoiseReactionMs = currentMs;
+    }
+  } else {
+    // Reset consecutive noise counter when it gets quiet
+    if (consecutiveNoiseCount > 0) {
+      consecutiveNoiseCount = 0;
+    }
+  }
 }
 
 // draw 1-bit bitmap helper
@@ -484,7 +661,7 @@ void drawModeDock(FaceMode m) {
   const int y = SCREEN_H - 16;
   display.fillRect(0, y, SCREEN_W, 16, SH110X_BLACK);
   int x1 = 20, x2 = SCREEN_W/2 - 6, x3 = SCREEN_W - 32;
-  drawIcon(x1, y+2, ICON_EYES_12);
+  drawIcon(x1, y+2, ICON_EYE_12);
   drawIcon(x2, y+2, ICON_CLOCK_12);
   drawIcon(x3, y+2, ICON_BELL_12);
   int uW = 18;
@@ -492,154 +669,11 @@ void drawModeDock(FaceMode m) {
   display.fillRect(ux, y+14, uW, 2, SH110X_WHITE);
 }
 
-// Toast overlay (centered)
-void drawToastIfAny() {
-  if (millis() > toastUntil || toastText.length()==0) return;
-  int16_t x1,y1; uint16_t w,h;
-  display.setTextSize(1);
-  display.getTextBounds(toastText, 0,0, &x1,&y1, &w,&h);
-  int bx = (SCREEN_W - (int)w - 8)/2;
-  int by = (SCREEN_H - 12)/2;
-  display.fillRect(bx, by, w+8, 12, SH110X_BLACK);
-  display.drawRect(bx, by, w+8, 12, SH110X_WHITE);
-  display.setCursor(bx+4, by+2);
-  display.print(toastText);
-}
+// drawToastIfAny() function moved to notification.cpp
 
-// Face: Clock
-void drawClock() {
-  display.clearDisplay();
-  display.setTextColor(SH110X_WHITE);
+// drawClock() function moved to clock.cpp
 
-  // Build strings (with seconds)
-  String timeStr, dateStr, batStr;
-  String hhStr, mmStr, ssStr;
-  if (chrono.isConnected()) {
-    hhStr = chrono.getHourZ();
-    mmStr = zeroPad2(chrono.getMinute());
-    ssStr = zeroPad2(chrono.getSecond());
-    timeStr = hhStr + ":" + mmStr + ":" + ssStr;
-    dateStr = zeroPad2(chrono.getDay()) + "/" + zeroPad2(chrono.getMonth());
-    // local device battery
-    if (millis() - lastVbatReadMs > 3000 || vbatPercent < 0) {
-      vbatVolts = readVBATVolts();
-      vbatPercent = voltsToPercent(vbatVolts);
-      lastVbatReadMs = millis();
-    }
-    batStr  = String(vbatPercent) + "%";
-  } else {
-    time_t t = time(NULL); struct tm tmnow; localtime_r(&t, &tmnow);
-    char tbuf[9]; snprintf(tbuf,sizeof(tbuf),"%02d:%02d:%02d", tmnow.tm_hour, tmnow.tm_min, tmnow.tm_sec);
-    char dbuf[6]; snprintf(dbuf,sizeof(dbuf),"%02d/%02d", tmnow.tm_mday, tmnow.tm_mon+1);
-    timeStr = tbuf; dateStr = dbuf;
-    char hbuf[3]; snprintf(hbuf,sizeof(hbuf),"%02d", tmnow.tm_hour); hhStr = hbuf;
-    char mbuf[3]; snprintf(mbuf,sizeof(mbuf),"%02d", tmnow.tm_min);  mmStr = mbuf;
-    char sbuf[3]; snprintf(sbuf,sizeof(sbuf),"%02d", tmnow.tm_sec);  ssStr = sbuf;
-    if (millis() - lastVbatReadMs > 3000 || vbatPercent < 0) {
-      vbatVolts = readVBATVolts();
-      vbatPercent = voltsToPercent(vbatVolts);
-      lastVbatReadMs = millis();
-    }
-    batStr = String(vbatPercent >= 0 ? vbatPercent : 0) + "%";
-  }
-
-  // Frame (shared layout)
-  const int fx = FRAME_X, fy = FRAME_Y;
-  const int fw = FRAME_W, fh = FRAME_H;
-  drawSharedFrame(fx, fy, fw, fh);
-
-  // Header row inside frame using PixeboyNum20 (date left, battery right)
-  drawHeaderDateBattery(fx, fy, fw, dateStr, batStr);
-
-  // Big HH:MM:SS using TechTime37 font
-  // Fixed segment widths (HH/MM/SS) based on reference glyphs to avoid jiggle
-  {
-    // Compute vertical baseline centered in the space below the header row
-    int16_t headerBottom = headerBottomY(fy);
-    int16_t contentTop = headerBottom + 10;  // small gap below header
-    int16_t contentBottom = fy + fh - 2;    // bottom padding
-    int16_t availCenter = (contentTop + contentBottom) / 2;
-    int16_t glyphHalf = (TechTime37::Ascent - TechTime37::Descent) / 2;
-    int16_t baseY = availCenter + glyphHalf;
-    // Measure fixed widths using reference strings
-    auto measureTech = [](const String &s){
-      int adv=0; for (size_t i=0;i<s.length();++i){ uint8_t cp=(uint8_t)s[i]; int16_t gi=TechTime37::findGlyph(cp); if (gi<0) gi=TechTime37::findGlyph('0'); adv += (int8_t)pgm_read_byte(&TechTime37::Glyphs[gi].xAdvance);} return adv; };
-    int wHH = measureTech("00");
-    int wMM = measureTech("00");
-    int wSS = measureTech("00");
-    int wColon = measureTech(":");
-    int totalRef = wHH + wColon + wMM + wColon + wSS;
-    int x0 = fx + (fw - totalRef)/2; // center the fixed layout
-    int xHH = x0;
-    int xC1 = xHH + wHH;
-    int xMM = xC1 + wColon;
-    int xC2 = xMM + wMM;
-    int xSS = xC2 + wColon;
-    TechTime37::drawTextUTF8(display, xHH, baseY, hhStr.c_str(), SH110X_WHITE);
-    TechTime37::drawTextUTF8(display, xC1, baseY, ":", SH110X_WHITE);
-    TechTime37::drawTextUTF8(display, xMM, baseY, mmStr.c_str(), SH110X_WHITE);
-    TechTime37::drawTextUTF8(display, xC2, baseY, ":", SH110X_WHITE);
-    TechTime37::drawTextUTF8(display, xSS, baseY, ssStr.c_str(), SH110X_WHITE);
-  }
-
-  // no HUD
-  drawToastIfAny();
-  display.display();
-}
-
-// Face: Notification popup (framed like clock)
-static uint32_t notifPopupUntil = 0;
-void drawNotif() {
-  display.clearDisplay();
-  display.setTextColor(SH110X_WHITE); display.setTextSize(1);
-  const int fx = FRAME_X, fy = FRAME_Y;     // outer margins (left/top)
-  const int fw = FRAME_W, fh = FRAME_H;     // frame size (width/height)
-  // Draw frame with configurable thickness
-  for (uint8_t t=0; t<FRAME_THICKNESS; ++t) {
-    display.drawRoundRect(fx + t, fy + t, fw - 2*t, fh - 2*t, FRAME_RADIUS, SH110X_WHITE);
-  }
-
-  if (lastNotifTitle.length()==0 && lastNotifBody.length()==0) {
-    // placeholder
-    display.setCursor(fx+4, fy+2); display.print("No notifications");
-  } else {
-    // Title (bigger) using ShopeeRegular18
-    int16_t titleBaseY = fy + 4 + ShopeeRegular18::Ascent;
-    ShopeeRegular18::drawTextUTF8(display, fx+4, titleBaseY, lastNotifTitle.c_str(), SH110X_WHITE);
-
-    // Body with horizontal scrolling if overflow
-    static int16_t notifScrollX = 0;
-    static uint32_t notifScrollT0 = 0;
-    String body = lastNotifBody; body.replace('\n',' ');
-    // Measure body advance width
-    int bodyAdv = 0;
-    for (size_t i=0;i<body.length();++i){
-      uint8_t c = (uint8_t)body[i];
-      int16_t gi = ShopeeRegular18::findGlyph(c);
-      if (gi < 0) gi = ShopeeRegular18::findGlyph('?');
-      bodyAdv += (int8_t)pgm_read_byte(&ShopeeRegular18::Glyphs[gi].xAdvance);
-    }
-    int viewW = fw - 8;
-    int16_t bodyBaseY = titleBaseY + ShopeeRegular18::YAdvance + 2;
-    if (bodyAdv <= viewW) {
-      ShopeeRegular18::drawTextUTF8(display, fx+4, bodyBaseY, body.c_str(), SH110X_WHITE);
-      notifScrollX = 0; // reset when not needed
-    } else {
-      uint32_t now = millis();
-      if (now - notifScrollT0 > 90) { // scroll speed
-        notifScrollT0 = now;
-        notifScrollX += 2;            // pixels per tick
-        if (notifScrollX > bodyAdv + 12) notifScrollX = 0;
-      }
-      // Draw two copies for seamless marquee
-      ShopeeRegular18::drawTextUTF8(display, fx+4 - notifScrollX, bodyBaseY, body.c_str(), SH110X_WHITE);
-      ShopeeRegular18::drawTextUTF8(display, fx+4 - notifScrollX + bodyAdv + 12, bodyBaseY, body.c_str(), SH110X_WHITE);
-    }
-  }
-
-  drawToastIfAny();
-  display.display();
-}
+// drawNotif() function moved to notification.cpp
 
 // =============================================================================
 // ARDUINO MAIN FUNCTIONS
@@ -663,7 +697,16 @@ void setup() {
 
   // Custom UTF-8 font is header-only; no additional init required
   // I2S Audio init
-  Audio::begin(I2S_BCLK, I2S_LRC, I2S_DO, 22050);
+  Audio::begin(I2S_BCLK, I2S_LRC, I2S_DO, AUDIO_SAMPLE_RATE);
+
+  // Initialize microphone for noise/voice detection
+  if (ENABLE_MIC_LISTENING) {
+    if (Audio::beginMicrophone(MIC_SAMPLE_RATE)) {
+      Serial.println("Microphone initialized for noise detection");
+    } else {
+      Serial.println("Failed to initialize microphone");
+    }
+  }
 
   setupRoboEyes();
   // init WS2812 status LED
@@ -672,31 +715,45 @@ void setup() {
   strip.show();
 
   chrono.setNotificationCallback([](Notification n){
-    lastNotifTitle = n.title;
-    lastNotifBody = n.message;
+    // Copy strings to fixed char arrays with bounds checking
+    n.title.toCharArray(lastNotifTitle, sizeof(lastNotifTitle));
+    lastNotifTitle[sizeof(lastNotifTitle)-1] = '\0';
+    n.message.toCharArray(lastNotifBody, sizeof(lastNotifBody));
+    lastNotifBody[sizeof(lastNotifBody)-1] = '\0';
+
+    // Reset notification scroll position for new notification
+    notifScrollX = 0;
+    notifScrollT0 = 0;
+
     // Sequence-based cute notify; debounced
     static uint32_t lastNotifSfxMs = 0; const uint32_t NOTIF_SFX_GAP_MS = 500;
     uint32_t nowMs = millis();
     if (nowMs - lastNotifSfxMs >= NOTIF_SFX_GAP_MS) {
-      Audio::sfxNotify();
-      Audio::playCuteYes(120);
+      if (ENABLE_NOTIFY_SFX) {
+        Audio::sfxNotify();
+        Audio::playCuteYes(120);
+      }
       lastNotifSfxMs = nowMs;
     }
     triggerNotificationAttention();
-    // Popup overlay for 4 seconds
-    notifPopupUntil = millis() + 4000;
+    // Popup overlay for a few seconds
+    notifPopupUntil = millis() + NOTIF_POPUP_MS;
   });
   chrono.setConnectionCallback([](bool c){
     Serial.printf("Chronos %s\n", c?"connected":"disconnected");
-    if (c) { Audio::sfxDroidYes(); }
-    else   { Audio::sfxDroidNo(); }
+    if (ENABLE_BLE_SFX) {
+      if (c) { Audio::sfxDroidYes(); }
+      else   { Audio::sfxDroidNo(); }
+    }
   });
   // Force BLE enabled on startup
   bleEnabled = true;
   chrono.begin();
   // set status LED blue to indicate BLE enabled
-  strip.setPixelColor(0, strip.Color(0,0,255));
-  strip.show();
+  if (ENABLE_LED_STATUS) {
+    strip.setPixelColor(0, strip.Color(0,0,255));
+    strip.show();
+  }
 
   mode = FACE_EYES;
 
@@ -717,63 +774,184 @@ void setup() {
   } else {
     Serial.println("PSRAM not detected");
   }
+  volume = AUDIO_DEFAULT_VOLUME;
   Audio::setMasterVolume(volume);
   // Defer startup SFX until loop() begins to ensure I2S is fully ready
 }
 
 void loop() {
+  // Get current time once for the entire loop
+  uint32_t currentMs = millis();
+
   // BLE
   if (bleEnabled) chrono.loop();
 
   // BLE toggle UI (non-blocking)
   updateBleToggleUI();
 
-  // Face switching
-  if (edgeRising(TOUCH_PIN, /*activeHigh=*/true, /*debounceMs=*/30)) {
-    mode = (FaceMode)((mode + 1) % FACE_COUNT);
-    if (mode == FACE_NOTIF) {
-      Audio::sfxNotify();
-    } else if (mode == FACE_CLOCK) {
-      Audio::sfxConfirm();
-      Audio::playCuteQuestion();
+  // Power management (track activity and sleep states)
+  updatePowerManagement();
+
+  // Microphone noise detection
+  checkMicrophoneNoise();
+
+  // Face switching (hold on TOUCH_PIN to avoid conflict with triple tap)
+  {
+    static bool touchHolding = false;
+    static bool faceHoldConsumed = false;
+    static uint32_t touchDownAt = 0;
+    const uint16_t FACE_HOLD_MS = 750; // hold duration to change face
+    bool touchNow = (digitalRead(TOUCH_PIN) == HIGH);
+    if (touchNow && !touchHolding) { touchHolding = true; faceHoldConsumed = false; touchDownAt = millis(); }
+    if (!touchNow && touchHolding) { touchHolding = false; }
+    if (touchHolding && !faceHoldConsumed) {
+      if (millis() - touchDownAt >= FACE_HOLD_MS) {
+        mode = (FaceMode)((mode + 1) % FACE_COUNT);
+        if (ENABLE_MODE_SFX) {
+          if (mode == FACE_NOTIF) {
+            Audio::sfxNotify();
+          } else if (mode == FACE_CLOCK) {
+            Audio::sfxConfirm();
+            Audio::playCuteQuestion();
+          } else {
+            Audio::sfxCurious();
+          }
+        }
+        wakeUp(); // Wake up on face switch
+        faceHoldConsumed = true;
+      }
+    }
+  }
+
+  // Triple-tap TOUCH_PIN toggles silent/chatty (allowed on all faces)
+  if (tripleTap(TOUCH_PIN, /*activeHigh=*/true, /*debounceMs=*/10, /*windowMs=*/650)) {
+    wakeUp(); // Wake up on triple-tap
+    silentMode = !silentMode;
+    if (silentMode) {
+      savedTalkativeLevel = (talkativeLevel == 0) ? BOT_TALKATIVE_LEVEL : talkativeLevel;
+      talkativeLevel = 0;
+      if (ENABLE_MODE_SFX) Audio::sfxError();
+      showToast("Silent mode", 1200);Serial.println("Silent mode");
     } else {
-      Audio::sfxCurious();
+      talkativeLevel = savedTalkativeLevel;
+      if (ENABLE_MODE_SFX) Audio::sfxConfirm();
+      showToast("Chatty mode", 1200);Serial.println("Chatty mode");
     }
   }
 
   // Ensure notification attention animation progresses regardless of face
   updateNotificationAnim();
 
-  // Draw active face
+  // Draw active face with throttled updates
   switch (mode) {
     case FACE_EYES:
-      // Keep the face clean: RoboEyes draws into the buffer. Do not draw HUD
-      // or dock here so the face remains uncluttered and stable.
-      Eyes.update();
+      // Throttle RoboEyes updates for better performance
+      if (currentMs - lastRoboEyesUpdateMs >= ROBOEYES_UPDATE_MS) {
+        // Keep eyes fully animated every update; toast will overlay after
+        static bool wasBlinking = false;
+        static uint32_t lastAutoBlinkSfxMs = 0;
+
+        bool wasBlinkingBefore = (!Eyes.eyeL_open || !Eyes.eyeR_open);
+        Eyes.update();
+        bool isBlinkingAfter = (!Eyes.eyeL_open || !Eyes.eyeR_open);
+
+        if (!wasBlinkingBefore && isBlinkingAfter && ENABLE_TAP_SFX && !silentMode &&
+            (currentMs - lastAutoBlinkSfxMs > 800)) {
+          Audio::sfxBlink();
+          lastAutoBlinkSfxMs = currentMs;
+        }
+        lastRoboEyesUpdateMs = currentMs;
+      }
       // Suppress random idle SFX during jiggling or non-default moods to keep it calm
-      if (!jiggling && curMood == MS_DEFAULT) {
-        // Much lower probability + cooldown to reduce talkativeness
+      if (ENABLE_IDLE_CHATTER && !silentMode && !jiggling && curMood == MS_DEFAULT) {
+        // Talkativeness mapping: threshold and cooldown by level
         static uint32_t lastChatterMs = 0;
-        const uint32_t CHATT_COOLDOWN_MS = 180000; // 3 minutes
+        uint8_t lvl = talkativeLevel; if (lvl > 5) lvl = 5;
+        // levels 0..5
+        const uint32_t maskByLvl[6] = {
+          0x7FFFFFFF, // 0 never
+          0x7FFF,     // 1 ~1/32768
+          0x3FFF,     // 2 ~1/16384
+          0x1FFF,     // 3 ~1/8192
+          0x0FFF,     // 4 ~1/4096
+          0x07FF      // 5 ~1/2048
+        };
+        const uint32_t cooldownByLvl[6] = {
+          0xFFFFFFFF, // 0 never
+          180000,     // 1 3m
+          90000,      // 2 1.5m
+          45000,      // 3 45s
+          25000,      // 4 25s
+          15000       // 5 15s
+        };
         uint32_t now = millis();
-        if ((esp_random() & 0x3FFF) == 0 &&             // ~1/16384 per loop
+        if (((esp_random() & maskByLvl[lvl]) == 0) &&
             !Audio::isSequencePlaying() &&
-            (now - lastChatterMs > CHATT_COOLDOWN_MS)) {
-          Audio::playCuteChatterV2(600 + (esp_random()%200), 0);
+            (now - lastChatterMs > cooldownByLvl[lvl])) {
+          Audio::playCuteChatterFree(450, 1300, 0);
+          // Show binary communication when chattering
+          if (ENABLE_BINARY_CHATTER) {
+            showBinaryChatter();
+          }
           lastChatterMs = now;
         }
       }
-      // Overlay toast if any, then flush
-      drawToastIfAny();
-      display.display();
+      // Keep toast as the very last draw when visible
+      if (toastVisible) {
+        // Disable eyes auto-flush and reserve a HUD band for toast
+        gEyesAutoFlush = false;
+        const int DOCK_H = 16;
+        const int TOAST_H = 18;
+        const int TOAST_Y = SCREEN_H - DOCK_H - TOAST_H;
+        gEyesViewportYMax = TOAST_Y; // eyes draw only above toast band
+
+        // Draw toast overlay every loop so it wins over any eyes repaint
+        drawToastIfAny(display);
+        display.display();
+        displayNeedsUpdate = false;
+        lastDisplayUpdateMs = currentMs;
+      } else if (currentMs - lastDisplayUpdateMs >= DISPLAY_UPDATE_MS) {
+        // Normal throttled frame when no toast
+        drawToastIfAny(display); // no-op when no toast
+        if (displayNeedsUpdate) {
+          display.display();
+          displayNeedsUpdate = false;
+        }
+        lastDisplayUpdateMs = currentMs;
+      }
       break;
 
-    case FACE_CLOCK:  drawClock();   break;
-    case FACE_NOTIF:  drawNotif();   break;
+    case FACE_CLOCK:
+      // Throttle clock display updates
+      if (currentMs - lastDisplayUpdateMs >= DISPLAY_UPDATE_MS) {
+        drawClock(display, chrono);
+        lastDisplayUpdateMs = currentMs;
+      }
+      break;
+    case FACE_NOTIF:
+      // Throttle notification display updates
+      if (currentMs - lastDisplayUpdateMs >= DISPLAY_UPDATE_MS) {
+        drawNotif(display);
+        lastDisplayUpdateMs = currentMs;
+      }
+      break;
+  }
+
+  // Final overlay and single flush when a toast is visible (wins over any prior repaint)
+  if (toastVisible) {
+    // Ensure overlay wins and only we flush
+    drawToastIfAny(display);
+    display.display();
+    displayNeedsUpdate = false;
+    lastDisplayUpdateMs = currentMs;
+  } else {
+    // Restore normal eyes flushing/viewport when no toast
+    gEyesAutoFlush = true;
+    gEyesViewportYMax = 0;
   }
 
   // small pacing to avoid excessive I2C spam on non-eyes faces
-  if (mode != FACE_EYES) delay(120);
+  if (mode != FACE_EYES) delay(NON_EYES_DELAY_MS);
 
   // Audio update
   Audio::update();
@@ -783,8 +961,8 @@ void loop() {
   {
     static bool playedStartup = false;
     static uint32_t bootT0 = millis();
-    if (!playedStartup && millis() - bootT0 > 200) { // slight delay to be safe
-      Audio::playCuteStartup();
+    if (!playedStartup && millis() - bootT0 > STARTUP_SFX_DELAY) { // slight delay to be safe
+      if (ENABLE_STARTUP_SFX) Audio::playCuteStartup();
       playedStartup = true;
     }
   }
@@ -795,33 +973,29 @@ void loop() {
     if (mode != FACE_NOTIF) { prevMode = mode; mode = FACE_NOTIF; }
     if (millis() > notifPopupUntil) { notifPopupUntil = 0; mode = prevMode; }
   }
-
-  // (old MPU debug prints removed)
   
   // Emotion engine (run ~every frame; it’s cheap)
   static uint32_t emoT0 = 0;
-  if (millis() - emoT0 > 40) {  // ~25 Hz
+  if (millis() - emoT0 > EMO_TICK_MS) {  // ~25 Hz
     emoT0 = millis();
     updateEmotionsFromIMU();
   }
 
   // Liveliness: ~25 Hz
-  if (millis() - imuTickMs > 40) {
+  if (millis() - imuTickMs > IMU_TICK_MS) {
     imuTickMs = millis();
     updateLivelinessFromIMU();
-    // Debug print MPU only if significant change
     //debugPrintIMUIfChanged();
 
   }
-
-  // Periodic VBAT debug to Serial (independent of face mode)
+  // Only read when display is also being updated to reduce I2C traffic
   static uint32_t lastVbatLogMs = 0;
-  if (millis() - lastVbatLogMs > 3000) {
+  if (currentMs - lastVbatLogMs > VBAT_LOG_MS) {
     vbatVolts = readVBATVolts();
     vbatPercent = voltsToPercent(vbatVolts);
-    lastVbatReadMs = millis();
+    lastVbatReadMs = currentMs;
     lastVbatLogMs = lastVbatReadMs;
-    Serial.printf("VBAT: %.2f V (%d%%)\n", vbatVolts, vbatPercent);
+    Serial.printf("VBAT: %.2f V (%d%%)%s\n", vbatVolts, vbatPercent, batteryCharging?" [charging]":"");
   }
 
 }

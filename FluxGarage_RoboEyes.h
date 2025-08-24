@@ -1,27 +1,3 @@
-/*
- * FluxGarage RoboEyes for OLED Displays V 1.1.0
- * Draws smoothly animated robot eyes on OLED displays, based on the Adafruit GFX 
- * library's graphics primitives, such as rounded rectangles and triangles.
- *   
- * Copyright (C) 2024-2025 Dennis Hoelscher
- * www.fluxgarage.com
- * www.youtube.com/@FluxGarage
- *
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program. If not, see <https://www.gnu.org/licenses/>.
- */
-
 
 #ifndef _FLUXGARAGE_ROBOEYES_H
 #define _FLUXGARAGE_ROBOEYES_H
@@ -52,6 +28,10 @@ uint8_t MAINCOLOR = 1; // drawings
 #define NW 8 // north-west, top left 
 // for middle center set "DEFAULT"
 
+// External runtime controls (defined in sketch)
+extern bool gEyesAutoFlush;     // when false, library will not call display.display()
+extern int  gEyesViewportYMax;  // maximum Y (exclusive) that eyes are allowed to draw/clear; 0 -> none
+
 class roboEyes
 {
 private:
@@ -59,7 +39,6 @@ private:
 // Yes, everything is currently still accessible. Be responsible and don't mess things up :)
 
 public:
-
 // For general setup - screen size and max. frame rate
 int screenWidth = 128; // OLED display width, in pixels
 int screenHeight = 64; // OLED display height, in pixels
@@ -214,8 +193,15 @@ float sweat3Width = 1;
 void begin(int width, int height, byte frameRate) {
 	screenWidth = width; // OLED display width, in pixels
 	screenHeight = height; // OLED display height, in pixels
-  display.clearDisplay(); // clear the display buffer
-  display.display(); // show empty screen
+  // Avoid full-screen clear/flush if host wants to own compositing
+  if (gEyesAutoFlush) {
+    display.clearDisplay();
+    display.display();
+  } else {
+    // Clear only the viewport region; host will flush later
+    int h = (gEyesViewportYMax > 0 && gEyesViewportYMax <= screenHeight) ? gEyesViewportYMax : screenHeight;
+    display.fillRect(0, 0, screenWidth, h, BGCOLOR);
+  }
   eyeLheightCurrent = 1; // start with closed eyes
   eyeRheightCurrent = 1; // start with closed eyes
   setFramerate(frameRate); // calculate frame interval based on defined frameRate
@@ -630,7 +616,12 @@ void drawEyes(){
 
   //// ACTUAL DRAWINGS ////
 
-  display.clearDisplay(); // start with a blank screen
+  // Start with a blank canvas only in the viewport; avoid wiping HUD/overlay bands
+  if (gEyesViewportYMax > 0 && gEyesViewportYMax <= screenHeight) {
+    display.fillRect(0, 0, screenWidth, gEyesViewportYMax, BGCOLOR);
+  } else {
+    display.clearDisplay();
+  }
 
   // Draw basic eye rectangles
   display.fillRoundRect(eyeLx, eyeLy, eyeLwidthCurrent, eyeLheightCurrent, eyeLborderRadiusCurrent, MAINCOLOR); // left eye
@@ -701,7 +692,9 @@ void drawEyes(){
       display.fillRoundRect(sweat3XPos, sweat3YPos, sweat3Width, sweat3Height, sweatBorderradius, MAINCOLOR); // draw sweat drop
     }
 
-  display.display(); // show drawings on display
+  if (gEyesAutoFlush) {
+    display.display(); // show drawings on display
+  }
 
 } // end of drawEyes method
 

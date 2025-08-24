@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <stdint.h>
 #include "motion.h"
 #include "util.h"
 #include "mpu6050.h"
@@ -20,7 +21,6 @@ static constexpr uint8_t ROBO_HAPPY   = 3;
 
 // SFX debounce for mood changes
 static uint32_t lastMoodSfxMs = 0;
-static constexpr uint32_t MOOD_SFX_GAP_MS = 600;
 
 // Thresholds and timings centralized in config.h
 
@@ -57,7 +57,7 @@ void setEyesMood(MoodState m) {
   }
   curMood = m;
   uint32_t nowMs = millis();
-  bool allowSfx = (nowMs - lastMoodSfxMs) >= MOOD_SFX_GAP_MS;
+  bool allowSfx = ENABLE_MOOD_SFX && ((nowMs - lastMoodSfxMs) >= MOOD_SFX_GAP_MS);
   switch (m) {
     case MS_DEFAULT: Eyes_SetMood(ROBO_DEFAULT); break;
     case MS_HAPPY:   Eyes_SetMood(ROBO_HAPPY);   if (allowSfx) Audio::playCuteHello(); break;
@@ -77,26 +77,44 @@ void triggerFuriousJiggle() {
 
 void updateEmotionsFromIMU() {
   uint32_t currentMs = millis();
+  static uint32_t lastMpuReadMs = 0;
+
+  // Only read MPU at IMU tick frequency to reduce I2C traffic
+  if (currentMs - lastMpuReadMs < IMU_TICK_MS) return;
+  lastMpuReadMs = currentMs;
+
   float ax, ay, az, gx, gy, gz;
   mpuRead(ax, ay, az, gx, gy, gz);
 
   float gmag = sqrtf(gx*gx + gy*gy + gz*gz);
-  lpf_ax = lpf(lpf_ax, ax);
-  lpf_ay = lpf(lpf_ay, ay);
-  lpf_az = lpf(lpf_az, az);
-  lpf_g  = lpf(lpf_g , gmag, 0.3f);
+
+  // Only update filters if there's significant change (noise reduction)
+  const float ACCEL_NOISE_THRESHOLD = 0.02f;
+  const float GYRO_NOISE_THRESHOLD = 5.0f;
+
+  if (fabsf(ax - lpf_ax) > ACCEL_NOISE_THRESHOLD) lpf_ax = lpf(lpf_ax, ax);
+  if (fabsf(ay - lpf_ay) > ACCEL_NOISE_THRESHOLD) lpf_ay = lpf(lpf_ay, ay);
+  if (fabsf(az - lpf_az) > ACCEL_NOISE_THRESHOLD) lpf_az = lpf(lpf_az, az);
+  if (fabsf(gmag - lpf_g) > GYRO_NOISE_THRESHOLD) lpf_g = lpf(lpf_g, gmag, 0.3f);
 
   bool moving = (fabsf(ax) > STILL_G_THRESH) || (fabsf(ay) > STILL_G_THRESH) || (fabsf(az-1.0f) > AZ_1G_TOL) || (lpf_g > 40.0f);
   if (moving) lastMoveMs = currentMs;
 
-  if (lpf_g > SHAKE_FURIOUS_DPS) {
+  if (ENABLE_SHAKE_FURIOUS && lpf_g > SHAKE_FURIOUS_DPS) {
     if (!furiousShaking) { furiousShaking = true; furiousStart = currentMs; }
     if (currentMs - furiousStart > FURIOUS_MS) {
       setEyesMood(MS_FURIOUS);
       moodUntil = currentMs + FURIOUS_HOLD_MS;
+      // force furious jiggle and keep it on for the entire hold
+      furiousJiggling = true;
+      furiousJiggleEndMs = moodUntil;
+      Eyes_SetHFlicker(true, 2);
+      Eyes_SetVFlicker(true, 2);
+      // strong alert sound immediately
+      if (ENABLE_MOOD_SFX) Audio::sfxFurious();
       showToast("GRRRR! 😠", 1200);
     }
-  } else if (lpf_g > SHAKE_ANGRY_DPS) {
+  } else if (ENABLE_SHAKE_ANGRY && lpf_g > SHAKE_ANGRY_DPS) {
     if (!shaking) { shaking = true; shakeStart = currentMs; }
     if (currentMs - shakeStart > SHAKE_MS) {
       if (curMood != MS_FURIOUS) {
@@ -114,13 +132,13 @@ void updateEmotionsFromIMU() {
   if (tap_mag > 0.5f && curMood != MS_ANGRY && curMood != MS_FURIOUS && curMood != MS_HAPPY &&
       (currentMs - lastTapCheckMs > TAP_COOLDOWN_MS)) {
     Eyes_Blink();
-    Audio::sfxBlink();
+    if (ENABLE_TAP_SFX) Audio::sfxBlink();
     lastTapCheckMs = currentMs;
   }
 
   float pitch, roll;
   accelToAngles(lpf_ax, lpf_ay, lpf_az, pitch, roll);
-  if (curMood != MS_ANGRY && curMood != MS_FURIOUS) {
+  if (ENABLE_TILT_HAPPY && curMood != MS_ANGRY && curMood != MS_FURIOUS) {
     if (fabsf(pitch) > TILT_HAPPY_DEG || fabsf(roll) > TILT_HAPPY_DEG) {
       setEyesMood(MS_HAPPY);
       moodUntil = currentMs + MOOD_HOLD_MS;
@@ -153,9 +171,24 @@ void scheduleNextJiggle() {
 
 void updateLivelinessFromIMU() {
   uint32_t currentMs = millis();
+  static uint32_t lastMpuReadMs = 0;
+
+  // Use the same MPU reading optimization as emotion system
+  if (currentMs - lastMpuReadMs < IMU_TICK_MS) return;
+  lastMpuReadMs = currentMs;
+
   float ax,ay,az,gx,gy,gz; mpuRead(ax,ay,az,gx,gy,gz);
-  lpf_ax = lpf(lpf_ax, ax); lpf_ay = lpf(lpf_ay, ay); lpf_az = lpf(lpf_az, az);
-  float gmag = sqrtf(gx*gx + gy*gy + gz*gz); lpf_g = lpf(lpf_g, gmag, 0.3f);
+
+  // Apply the same noise reduction as emotion system
+  const float ACCEL_NOISE_THRESHOLD = 0.02f;
+  const float GYRO_NOISE_THRESHOLD = 5.0f;
+
+  if (fabsf(ax - lpf_ax) > ACCEL_NOISE_THRESHOLD) lpf_ax = lpf(lpf_ax, ax);
+  if (fabsf(ay - lpf_ay) > ACCEL_NOISE_THRESHOLD) lpf_ay = lpf(lpf_ay, ay);
+  if (fabsf(az - lpf_az) > ACCEL_NOISE_THRESHOLD) lpf_az = lpf(lpf_az, az);
+
+  float gmag = sqrtf(gx*gx + gy*gy + gz*gz);
+  if (fabsf(gmag - lpf_g) > GYRO_NOISE_THRESHOLD) lpf_g = lpf(lpf_g, gmag, 0.3f);
 
   if (lpf_g > TAP_SPIKE_DPS && (currentMs - lastBlinkMs > TAP_MIN_GAP_MS) &&
       (currentMs - lastTapCheckMs > TAP_COOLDOWN_MS) &&
@@ -163,7 +196,7 @@ void updateLivelinessFromIMU() {
     Eyes_Blink(); lastBlinkMs = currentMs; lastTapCheckMs = currentMs;
   }
 
-  if (!jiggling && currentMs >= jiggleNextMs && curMood != MS_FURIOUS) {
+  if (ENABLE_RANDOM_JIGGLE && !jiggling && currentMs >= jiggleNextMs && curMood != MS_FURIOUS) {
     jiggling = true; jiggleEndMs = currentMs + 120 + (uint32_t)random(0, 120);
     Eyes_SetHFlicker(true, 1); if (random(0,3)==0) Eyes_SetVFlicker(true, 1);
   }

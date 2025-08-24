@@ -3,6 +3,7 @@
 #define DAISAI_MPU6050_H
 
 #include <Wire.h>
+#include <stdint.h>  // Add standard integer types
 
 // MPU6050 I2C address and registers
 #define MPU6050_ADDR 0x68

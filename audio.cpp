@@ -1,4 +1,6 @@
 #include <Arduino.h>
+#include <stdint.h>  // Add standard integer types
+#include "config.h"  // Include configuration constants
 #include "audio.h"
 #include <driver/i2s.h>
 
@@ -43,6 +45,23 @@ namespace Audio {
   static Voice voices[MAX_VOICES];
   static uint8_t g_masterVol = 240; // 0..255 - increased for better audibility
 
+  // === Microphone Input Support ===
+  static bool micEnabled = false;
+  static uint32_t micSampleRate = 16000;
+  static int16_t micBuffer[MIC_BUFFER_SIZE];
+  static float currentMicLevel = 0.0f;
+  static uint32_t lastMicReadMs = 0;
+
+  // Audio feedback prevention
+  static bool audioPlaybackActive = false;
+  static uint32_t lastAudioPlaybackMs = 0;
+
+  // Microphone gain for sensitivity boost
+  static constexpr float MIC_GAIN = 84.0f; // Amplify microphone signal by 64x
+
+  // Forward declaration for audio playback tracking
+  static void updateAudioPlaybackState();
+
   // Debug helper: log SFX name
   static inline void logSfx(const char* name){
     Serial.print("SFX: ");
@@ -67,6 +86,70 @@ namespace Audio {
   // MIDI helper: A4 (69) = 440 Hz
   static inline float hzFromMidi(int midi){
     return 440.0f * powf(2.0f, (midi - 69) / 12.0f);
+  }
+
+  // === Microphone Input Functions ===
+  static float calculateRMS(int16_t* buffer, size_t size) {
+    if (size == 0) return 0.0f;
+
+    float sum = 0.0f;
+    for (size_t i = 0; i < size; ++i) {
+      float sample = (float)buffer[i] / 32768.0f; // Convert to -1.0 to 1.0 range
+      sample *= MIC_GAIN; // Apply microphone gain boost
+      // Clamp to prevent overflow
+      if (sample > 1.0f) sample = 1.0f;
+      if (sample < -1.0f) sample = -1.0f;
+      sum += sample * sample;
+    }
+    return sqrtf(sum / (float)size);
+  }
+
+  static void readMicrophoneData() {
+    if (!micEnabled) return;
+
+    uint32_t currentMs = millis();
+
+    // Skip microphone reading during audio playback and cooldown period
+    if (audioPlaybackActive || (currentMs - lastAudioPlaybackMs < MIC_FEEDBACK_COOLDOWN_MS)) {
+      currentMicLevel = 0.0f; // Reset level to avoid false readings
+      return;
+    }
+
+    uint32_t readIntervalMs = (1000 * MIC_BUFFER_SIZE) / micSampleRate; // Time for one buffer
+
+    if (currentMs - lastMicReadMs < readIntervalMs) {
+      return; // Not time to read yet
+    }
+
+    size_t bytesRead = 0;
+    esp_err_t result = i2s_read(I2S_PORT, micBuffer, sizeof(micBuffer), &bytesRead,
+                                pdMS_TO_TICKS(10)); // Increased timeout
+
+    if (result == ESP_OK && bytesRead > 0) {
+      size_t samplesRead = bytesRead / sizeof(int16_t);
+      if (samplesRead > 0) {
+        currentMicLevel = calculateRMS(micBuffer, samplesRead);
+        lastMicReadMs = currentMs;
+
+        // Debug: Show raw samples occasionally
+        static uint32_t lastSampleDebug = 0;
+        if (currentMs - lastSampleDebug > 5000) { // Every 5 seconds
+          Serial.printf("Raw sample[0]: %d, Bytes read: %d, Samples: %d\n",
+                       micBuffer[0], bytesRead, samplesRead);
+          lastSampleDebug = currentMs;
+        }
+      }
+    } else {
+      // More detailed error reporting
+      if (result != ESP_OK) {
+        static uint32_t lastErrorTime = 0;
+        if (currentMs - lastErrorTime > 2000) { // Report error once per 2 seconds
+          Serial.printf("I2S mic read error: %d (0x%X)\n", result, result);
+          lastErrorTime = currentMs;
+        }
+      }
+      currentMicLevel = 0.0f; // Reset level on error
+    }
   }
 
   // Render one sample for a voice given elapsedMs since voice start
@@ -174,7 +257,7 @@ namespace Audio {
   void begin(int bclkPin, int lrclkPin, int dataOutPin, uint32_t sampleRate){
     g_sampleRate = sampleRate;
     i2s_config_t cfg = {};
-    cfg.mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX);
+    cfg.mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX | I2S_MODE_RX); // Enable both TX and RX
     cfg.sample_rate = (int)g_sampleRate;
     cfg.bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT;
     cfg.channel_format = I2S_CHANNEL_FMT_ONLY_LEFT;
@@ -190,7 +273,7 @@ namespace Audio {
     pins.bck_io_num = bclkPin;
     pins.ws_io_num = lrclkPin;
     pins.data_out_num = dataOutPin;
-    pins.data_in_num = I2S_PIN_NO_CHANGE;
+    pins.data_in_num = I2S_DI; // Enable microphone input on GPIO2
     i2s_set_pin(I2S_PORT, &pins);
   }
 
@@ -200,6 +283,52 @@ namespace Audio {
 
   void setMasterVolume(uint8_t vol){ g_masterVol = vol; }
   uint8_t getMasterVolume(){ return g_masterVol; }
+
+  // === Public Microphone Functions ===
+  bool beginMicrophone(uint32_t sampleRate) {
+    if (micEnabled) return true; // Already enabled
+
+    micSampleRate = sampleRate;
+    micEnabled = true;
+    lastMicReadMs = 0;
+    currentMicLevel = 0.0f;
+
+    // Give I2S time to settle after enabling RX mode
+    delay(100);
+
+    Serial.printf("Microphone enabled at %d Hz with 64x gain\n", micSampleRate);
+    Serial.println("Testing microphone... speak or make noise to test sensitivity");
+
+    // Test reading immediately
+    delay(500);
+    readMicrophoneData();
+    Serial.printf("Initial mic level: %.3f\n", currentMicLevel);
+
+    return true;
+  }
+
+  void endMicrophone() {
+    micEnabled = false;
+    Serial.println("Microphone disabled");
+  }
+
+  float getMicrophoneLevel() {
+    return currentMicLevel;
+  }
+
+  bool isLoudNoiseDetected() {
+    return currentMicLevel > MIC_NOISE_THRESHOLD;
+  }
+
+  // Check if audio is currently playing (for feedback prevention)
+  bool isAudioPlaying() {
+    return audioPlaybackActive;
+  }
+
+  // Check if microphone is in cooldown period after audio playback
+  bool isMicrophoneInCooldown() {
+    return (millis() - lastAudioPlaybackMs < MIC_FEEDBACK_COOLDOWN_MS);
+  }
 
   void playBeep(float freqHz, uint16_t ms, uint8_t volume, uint8_t wave){
     for (int i=0;i<MAX_VOICES;i++){
@@ -238,6 +367,12 @@ namespace Audio {
   }
 
   void update(){
+    // Update audio playback state (for feedback prevention)
+    updateAudioPlaybackState();
+
+    // Read microphone data periodically if enabled
+    readMicrophoneData();
+
     // Produce a small chunk per call
     const int N = 256;
     int16_t buffer[N];
@@ -261,16 +396,7 @@ namespace Audio {
   }
 
   // --- Presets ---
-  void sfxHappy(){
-    logSfx("Happy");
-    // Vector-inspired happy melody: C6-E6-G6 arpeggio with vibrato and personality
-    ExTone t1{ hzFromMidi(84), hzFromMidi(84), 120, WAVE_SINE, 200, 0, 7.0f, 0.25f, 0.0f, 0.0f, 0.08f }; // C6
-    ExTone t2{ hzFromMidi(88), hzFromMidi(88), 140, WAVE_SINE, 190, 0, 8.0f, 0.22f, 0.0f, 0.0f, 0.06f }; // E6
-    ExTone t3{ hzFromMidi(91), hzFromMidi(91), 160, WAVE_SINE, 180, 0, 9.0f, 0.20f, 0.0f, 0.0f, 0.05f }; // G6
-    playEx(t1); delay(35);
-    playEx(t2); delay(40);
-    playEx(t3);
-  }
+  // removed unused: sfxHappy
 
 
 
@@ -413,27 +539,12 @@ namespace Audio {
     playEx(b);
   }
 
-  void sfxStartup(){
-    logSfx("Startup");
-    // Vector-inspired cheerful awakening: major scale melody with personality
-    const int notes[] = {72, 74, 76, 79, 81, 83, 84, 86}; // C5-D5-E5-G5-A5-B5-C6-D6
-    const int durations[] = {100, 90, 110, 130, 120, 100, 140, 160};
-    for (int i=0;i<8;i++) {
-      ExTone n{ hzFromMidi(notes[i]), hzFromMidi(notes[i]), durations[i], WAVE_SINE, 185, 0, 8.0f, 0.15f, 0.0f, 0.0f, 0.05f };
-      playEx(n);
-      delay(25 + i*2); // slight acceleration for excitement
-    }
-  }
+  // removed unused: sfxStartup
 }
 
 // ===== New Droid-y Presets & Non-blocking Cute Sequencer =====
 namespace Audio {
-void sfxDroidChirp(){ // Vector-inspired curious chirp: melodic ascending with personality
-  logSfx("DroidChirp");
-  playEx({ hzFromMidi(84), hzFromMidi(84), 100, WAVE_SINE, 180, 2, 9.0f, 0.25f, 0.0f, 0.0f, 0.08f }); // C6
-  delay(30);
-  playEx({ hzFromMidi(88), hzFromMidi(88), 120, WAVE_SINE, 170, 2, 10.0f, 0.20f, 0.0f, 0.0f, 0.06f }); // E6
-}
+// removed unused: sfxDroidChirp
   static float midiToHz(uint8_t n){
     return 440.0f * powf(2.0f, ((int)n - 69) / 12.0f);
   }
@@ -471,6 +582,30 @@ void sfxDroidChirp(){ // Vector-inspired curious chirp: melodic ascending with p
     uint32_t nextAt = 0;
     uint16_t gapMs = 12;
   } static seq;
+
+  // Audio playback tracking (placed after seq declaration)
+  static void updateAudioPlaybackState() {
+    bool wasActive = audioPlaybackActive;
+    audioPlaybackActive = false;
+
+    // Check if any voices are active
+    for (int i = 0; i < MAX_VOICES; ++i) {
+      if (voices[i].active) {
+        audioPlaybackActive = true;
+        break;
+      }
+    }
+
+    // Also check sequencer
+    if (seq.playing) {
+      audioPlaybackActive = true;
+    }
+
+    // Track when audio playback ends
+    if (wasActive && !audioPlaybackActive) {
+      lastAudioPlaybackMs = millis();
+    }
+  }
 
   void startSequence(const NoteEv* events, uint8_t len, uint16_t startDelayMs){
     Serial.printf("SFX: SeqStart(len=%u)\n", len);
@@ -548,35 +683,13 @@ void sfxDroidChirp(){ // Vector-inspired curious chirp: melodic ascending with p
   static const NoteEv CHATT_4[] = { // questiony
     {79,70,165,WAVE_SINE}, {84,80,170,WAVE_SINE}, {86,120,180,WAVE_SINE}
   };
-  //void playCuteChatter(uint16_t d){
-  //  int r = (int)(esp_random() % 4);
-  //  switch (r){
-  //    case 0: startSequence(CHATT_1, ARRLEN(CHATT_1), d); break;
-  //    case 1: startSequence(CHATT_2, ARRLEN(CHATT_2), d); break;
-  //    case 2: startSequence(CHATT_3, ARRLEN(CHATT_3), d); break;
-  //    default:startSequence(CHATT_4, ARRLEN(CHATT_4), d); break;
-  //  }
-  //}
+
   void playCuteStartup(uint16_t d){ playCuteHello(d); }
   void playCuteFurious(uint16_t d){ startSequence(CUTE_NO, ARRLEN(CUTE_NO), d); }
 
-void sfxDroidQuestion(){ // Vector-inspired questioning: melodic rising phrase
-  logSfx("DroidQuestion");
-  playEx({ hzFromMidi(79), hzFromMidi(79), 140, WAVE_SINE, 170, 1, 8.0f, 0.25f, 0.0f, 0.0f, 0.06f }); // G5
-  delay(40);
-  playEx({ hzFromMidi(83), hzFromMidi(83), 160, WAVE_SINE, 160, 1, 9.0f, 0.20f, 0.0f, 0.0f, 0.05f }); // B5
-  delay(50);
-  playEx({ hzFromMidi(86), hzFromMidi(86), 180, WAVE_SINE, 150, 1, 10.0f, 0.15f, 0.0f, 0.0f, 0.04f }); // D6
-}
+// removed unused: sfxDroidQuestion
 
-void sfxDroidExclaim(){ // Vector-inspired excited: joyful descending arpeggio
-  logSfx("DroidExclaim");
-  playEx({ hzFromMidi(91), hzFromMidi(91), 120, WAVE_SINE, 200, 2, 10.0f, 0.30f, 0.0f, 0.0f, 0.08f }); // G6
-  delay(25);
-  playEx({ hzFromMidi(88), hzFromMidi(88), 100, WAVE_SINE, 190, 2, 9.0f, 0.25f, 0.0f, 0.0f, 0.06f }); // E6
-  delay(20);
-  playEx({ hzFromMidi(84), hzFromMidi(84), 140, WAVE_SINE, 180, 2, 8.0f, 0.20f, 0.0f, 0.0f, 0.05f }); // C6
-}
+// removed unused: sfxDroidExclaim
 
 void sfxDroidYes(){ // Vector-inspired affirmative: cheerful rising interval
   logSfx("DroidYes");
@@ -592,12 +705,6 @@ void sfxDroidNo(){ // Vector-inspired negative: gentle descending interval
   playEx({ hzFromMidi(78), hzFromMidi(78), 140, WAVE_SINE, 170, 1, 7.5f, 0.15f, 0.0f, 0.0f, 0.05f }); // F#5
 }
 
-void sfxDroidThinking(){ // Vector-inspired thinking: gentle pulsing with subtle vibrato
-  logSfx("DroidThinking");
-  playEx({ hzFromMidi(69), hzFromMidi(71), 600, WAVE_SINE, 140, 0, 4.0f, 0.12f, 3.0f, 0.35f, 0.02f }); // A4 to B4
-}
-
-// removed: old chatter in favor of playCuteChatterV2
 
 // Random helpers
 static inline float frand(float a, float b){
@@ -609,7 +716,7 @@ static inline int irand(int a, int b){ // inclusive
 
 // ---- Cute/Vector-style chatter generator ----
 static const int PENTA_DEG[] = {0, 2, 4, 7, 9, 12}; // major pentatonic degrees
-static inline int pick(const int* arr, int n){ return irand(0, n-1) + 0, arr[irand(0, n-1)]; }
+static inline int pick(const int* arr, int n){ return arr[irand(0, n-1)]; }
 
 static void pushNote(NoteEv* buf, uint8_t& n, uint8_t midi, uint16_t ms, uint8_t vol, uint8_t wave){
   if (n < 32) buf[n++] = { midi, ms, vol, wave };
@@ -628,7 +735,8 @@ static void pushGraceTo(NoteEv* b, uint8_t& n, uint8_t target, uint8_t vol){
 }
 
 void playCuteChatterV2(uint16_t totalMs, uint16_t startDelayMs){
-  static NoteEv ev[32];
+  // Reduced from 32 to 16 - sufficient for short phrases
+  static NoteEv ev[16];
   uint8_t n = 0;
 
   // pick a pleasant register near Vector's voice
@@ -676,5 +784,182 @@ void playCuteChatterV2(uint16_t totalMs, uint16_t startDelayMs){
   startSequence(ev, m, startDelayMs);
 }
 
-// removed: old droidSpeak generator
 } // namespace Audio
+// ===== Free-form pentatonic chatter =====
+namespace Audio {
+void playCuteChatterFree(uint16_t minTotalMs, uint16_t maxTotalMs, uint16_t startDelayMs){
+  if (minTotalMs > maxTotalMs) { uint16_t t=minTotalMs; minTotalMs=maxTotalMs; maxTotalMs=t; }
+  uint16_t target = (uint16_t)irand(minTotalMs, maxTotalMs);
+  // Reduced from 32 to 20 - sufficient for most procedural chatter
+  static NoteEv ev[20];
+  uint8_t n = 0;
+
+  // base register similar to Vector
+  const int baseChoices[] = {74, 76, 79, 81, 83, 84};
+  int base = baseChoices[irand(0, (int)(sizeof(baseChoices)/sizeof(baseChoices[0])) - 1)];
+  auto pent = [&](){ return (uint8_t)(base + PENTA_DEG[irand(0, 5)]); };
+
+  // Build phrases until target reached
+  uint16_t acc=0;
+  while (n < 32 && acc < target){
+    // choose phrase length 2..5 notes
+    int notes = irand(2,5);
+    for (int i=0;i<notes && n<32;i++){
+      uint8_t nn = pent();
+      // occasionally repeat/hold previous note
+      if (i>0 && irand(0,99) < 25) nn = ev[n-1].midi;
+      uint16_t dur = (uint16_t)irand(60, 160);
+      // rare longer held tone
+      if (irand(0,99) < 12) dur = (uint16_t)irand(180, 320);
+      uint8_t vol = (uint8_t)irand(150, 200);
+      uint8_t wave = (irand(0,5)==0) ? WAVE_SQUARE : WAVE_SINE; // rare bright accent
+      pushGraceTo(ev, n, nn, vol);
+      pushNote(ev, n, nn, dur, vol, wave);
+      acc += dur;
+      if (acc >= target || n>=32) break;
+      // optional short rest between notes
+      if (irand(0,99) < 30) { uint16_t r=(uint16_t)irand(20,50); pushRest(ev, n, r); acc += r; }
+    }
+    // small breathing gap between phrases
+    if (n<32 && acc<target) { uint16_t r=(uint16_t)irand(35,80); pushRest(ev, n, r); acc += r; }
+  }
+  startSequence(ev, n, startDelayMs);
+}
+}
+
+// ===== Binary-ish chatter: randomized bitstream with holds, variable height =====
+namespace Audio {
+void binaryTalkRandom(uint16_t minTotalMs, uint16_t maxTotalMs, uint16_t startDelayMs){
+  if (minTotalMs > maxTotalMs) { uint16_t t=minTotalMs; minTotalMs=maxTotalMs; maxTotalMs=t; }
+  uint16_t target = (uint16_t)irand(minTotalMs, maxTotalMs);
+
+  // Reduced from 64 to 32 - sufficient for binary patterns
+  static NoteEv ev[32];
+  uint8_t n = 0;
+  uint16_t acc = 0;
+
+  const int baseChoices[] = {74, 76, 79, 81, 83, 84, 86, 88};
+  const int steps[] = {3,4,5,7};
+  int base = baseChoices[irand(0, (int)(sizeof(baseChoices)/sizeof(baseChoices[0]))-1)];
+  int step = steps[irand(0,3)];
+  int low = base, high = base + step;
+
+  uint8_t level = (uint8_t)irand(0,1);
+  int runsToChange = irand(3,6);
+  int runCount = 0;
+
+  while (n < 64 && acc < target){
+    int bits = irand(1,6);
+    uint16_t bitMs = (uint16_t)irand(55,120);
+    uint16_t dur = (uint16_t)(bits * bitMs);
+    if (irand(0,99) < 18) dur += (uint16_t)irand(40,130);
+
+    uint8_t midi = (uint8_t)( level ? high : low );
+    uint8_t vol  = (uint8_t)irand(160, 205);
+    uint8_t wave = (irand(0,5)==0) ? WAVE_SQUARE : WAVE_SINE;
+
+    if (dur >= 180 && irand(0,99) < 40 && n <= 62){
+      uint16_t d1 = (uint16_t)(dur * frand(0.45f, 0.65f));
+      uint16_t d2 = dur - d1;
+      pushNote(ev, n, midi, d1, vol, wave);
+      uint8_t bend = (uint8_t)max(1, min(127, (int)midi + (irand(0,1) ? +1 : -1)));
+      pushNote(ev, n, bend, d2, (uint8_t)max(130, (int)vol-8), wave);
+      acc += d1 + d2;
+    } else {
+      pushNote(ev, n, midi, dur, vol, wave);
+      acc += dur;
+    }
+    if (acc >= target || n >= 64) break;
+
+    if (irand(0,99) < 35) { uint16_t r=(uint16_t)irand(18,50); pushRest(ev,n,r); acc += r; }
+    if (irand(0,99) < 70) level ^= 1;
+    if (irand(0,99) < 12 && n < 64){
+      uint8_t m = (uint8_t)min(127, (int)(level ? high : low) + 12);
+      uint16_t d = (uint16_t)irand(40,70);
+      pushNote(ev, n, m, d, (uint8_t)irand(175, 210), WAVE_SQUARE);
+      acc += d;
+    }
+
+    if (++runCount >= runsToChange){
+      base = baseChoices[irand(0, (int)(sizeof(baseChoices)/sizeof(baseChoices[0]))-1)];
+      step = steps[irand(0,3)];
+      low = base; high = base + step;
+      runCount = 0;
+      runsToChange = irand(3,6);
+      uint16_t r=(uint16_t)irand(60,120);
+      pushRest(ev,n,r); acc += r;
+    }
+  }
+
+  startSequence(ev, n, startDelayMs);
+}
+}
+
+// ===== Binary from bytes (MSB first), with holds and register shifts =====
+namespace Audio {
+void binaryTalkFromBytes(const uint8_t* data, size_t len, uint16_t bitMinMs, uint16_t bitMaxMs, uint16_t startDelayMs){
+  if (!data || !len) return;
+
+  // Reduced from 96 to 48 - sufficient for most data patterns
+  static NoteEv ev[48];
+  uint8_t n = 0;
+  uint16_t acc = 0;
+
+  const int baseChoices[] = {74, 76, 79, 81, 83, 84, 86, 88};
+  const int steps[] = {3,4,5,7};
+  int base = baseChoices[irand(0,7)];
+  int step = steps[irand(0,3)];
+  int low = base, high = base + step;
+
+  bool haveRun = false;
+  uint8_t runMidi = 0;
+  uint16_t runDur = 0;
+
+  auto flushRun = [&](){
+    if (!haveRun) return;
+    if (runDur >= 180 && irand(0,99)<35 && n <= 94){
+      uint16_t d1 = (uint16_t)(runDur * frand(0.45f, 0.65f));
+      uint16_t d2 = runDur - d1;
+      uint8_t vol = (uint8_t)irand(160, 205);
+      pushNote(ev, n, runMidi, d1, vol, WAVE_SINE);
+      uint8_t bend = (uint8_t)max(1, min(127, (int)runMidi + (irand(0,1)? +1 : -1)));
+      pushNote(ev, n, bend, d2, (uint8_t)max(130, (int)vol-8), WAVE_SINE);
+    } else {
+      pushNote(ev, n, runMidi, runDur, (uint8_t)irand(160, 205), (irand(0,6)==0)? WAVE_SQUARE : WAVE_SINE);
+    }
+    haveRun = false; runDur = 0;
+  };
+
+  int bytesTillShift = irand(2,4);
+
+  for (size_t i=0; i<len && n<96; ++i){
+    uint8_t b = data[i];
+    uint16_t bitMs = (uint16_t)irand(bitMinMs, bitMaxMs);
+
+    for (int bit=7; bit>=0 && n<96; --bit){
+      uint8_t bitVal = (b >> bit) & 1;
+      uint8_t midi = (uint8_t)(bitVal ? high : low);
+
+      if (!haveRun){ haveRun = true; runMidi = midi; runDur = bitMs; }
+      else if (midi == runMidi){ runDur += bitMs; }
+      else { flushRun(); haveRun = true; runMidi = midi; runDur = bitMs; }
+
+      if (irand(0,99) < 6 && n < 96){ uint16_t r=(uint16_t)irand(15,35); pushRest(ev,n,r); }
+    }
+
+    if (--bytesTillShift <= 0){
+      flushRun();
+      if (n < 96){ uint16_t r=(uint16_t)irand(50,110); pushRest(ev,n,r); }
+      base = baseChoices[irand(0,7)];
+      step = steps[irand(0,3)];
+      low = base; high = base + step;
+      bytesTillShift = irand(2,4);
+    } else {
+      flushRun();
+      if (n < 96){ uint16_t r=(uint16_t)irand(25,60); pushRest(ev,n,r); }
+    }
+  }
+  flushRun();
+  startSequence(ev, n, startDelayMs);
+}
+}
