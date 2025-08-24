@@ -3,8 +3,19 @@
 #include "config.h"
 #include <stdint.h>
 
+// Ensure stdint types are available
+#if !defined(__STDINT_H) && !defined(_STDINT_H_)
+typedef unsigned long uint32_t;
+typedef unsigned short uint16_t;
+typedef unsigned char uint8_t;
+typedef long int32_t;
+typedef short int16_t;
+typedef signed char int8_t;
+#endif
+
 // Font includes
 #include "include/ShopeeRegular12.h"
+#include "include/ToastRenderer.h"
 
 // Frame constants (from main)
 static const int FRAME_X = 0;
@@ -73,8 +84,10 @@ void drawToastIfAny(Adafruit_SH1106G& display) {
         if (c == ' ') continue; // skip spaces for nicer scatter
         int rx = scatterX[i];
         int ry = scatterY[i];
-        display.setCursor(rx, ry);
-        display.write(c);
+        
+        // Use ToastRenderer for emoji support even in scatter mode
+        char singleChar[2] = {c, '\0'};
+        ToastRenderer::drawToastText(display, rx, ry + ToastFont12::Ascent, String(singleChar), SH110X_WHITE);
       }
       // No cursor in scatter mode to avoid jitter
     } else {
@@ -90,19 +103,20 @@ void drawToastIfAny(Adafruit_SH1106G& display) {
 
       // Measure current text width for cursor placement
       int16_t x1, y1; uint16_t w, h;
-      display.getTextBounds(toastText, 0, 0, &x1, &y1, &w, &h);
+      ToastRenderer::getToastTextBounds(String(toastText), x1, y1, w, h);
 
       // Left padding inside banner
       const int padX = 4;
       const int padY = 2;
-      display.setCursor(bx + padX, by + padY);
-      display.print(toastText);
+      
+      // Use ToastRenderer for emoji support
+      int textY = by + padY + ToastFont12::Ascent; // Baseline position
+      ToastRenderer::drawToastText(display, bx + padX, textY, String(toastText), SH110X_WHITE);
 
       // Add cursor for typewriter effect
       if (toastTypewriter && toastTypePos < strlen(toastFullText)) {
         if ((currentMs / 150) % 2 == 0) { // fast blink
-          display.setCursor(bx + padX + (int)w, by + padY);
-          display.print("_");
+          ToastRenderer::drawToastText(display, bx + padX + (int)w, textY, "_", SH110X_WHITE);
         }
       }
     }

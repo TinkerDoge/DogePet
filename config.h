@@ -4,6 +4,15 @@
 #include <Arduino.h>
 #include <stdint.h>
 
+// Ensure stdint types are available
+#if !defined(__STDINT_H) && !defined(_STDINT_H_)
+typedef unsigned long uint32_t;
+typedef unsigned short uint16_t;
+typedef unsigned char uint8_t;
+typedef long int32_t;
+typedef short int16_t;
+#endif
+
 // === Hardware pins & display (centralized) ===
 static constexpr int      I2C_SDA        = 9;
 static constexpr int      I2C_SCL        = 8;
@@ -115,5 +124,19 @@ static constexpr bool      DEFAULT_SHAKING          = true;
 static constexpr bool      DEFAULT_FURIOUS_SHAKING  = true;
 static constexpr bool      DEFAULT_FURIOUS_JIGGLING = true;
 static constexpr bool      DEFAULT_JIGGLING         = true;
+
+// === Gemini AI Configuration ===
+static constexpr bool      ENABLE_GEMINI_AI         = true;  // Enable AI features
+static constexpr const char* GEMINI_API_KEY         = "AIzaSyBUI39g_byb1KUm_iNkvQF4y86mxCV8A28";    // Set your API key here
+static constexpr const char* GEMINI_MODEL           = "gemini-1.5-flash";    // AI model to use
+static constexpr uint32_t  GEMINI_COOLDOWN_MS      = 30000; // Minimum time between AI requests
+static constexpr bool      ENABLE_AI_CHATTER        = true;  // Enable background AI conversations
+static constexpr uint32_t  AI_CHATTER_INTERVAL_MS   = 30000; // 30 seconds between background chatter (for testing)
+
+// === WiFi Configuration ===
+static constexpr bool      ENABLE_WIFI              = true;  // Enable WiFi for AI features
+static constexpr const char* WIFI_SSID              = "NOVA";    // Set your WiFi network name
+static constexpr const char* WIFI_PASSWORD          = "22122024";    // Set your WiFi password
+static constexpr uint32_t  WIFI_CONNECT_TIMEOUT_MS = 30000; // WiFi connection timeout
 
 

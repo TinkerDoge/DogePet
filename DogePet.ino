@@ -6,8 +6,24 @@
 // =============================================================================
 #include <Arduino.h>
 #include <stdint.h>  // Standard integer types - must come early
+
+// Ensure stdint types are available for linter and fix delay() issues
+#if !defined(__STDINT_H) && !defined(_STDINT_H_)
+typedef unsigned long uint32_t;
+typedef unsigned short uint16_t;
+typedef unsigned char uint8_t;
+typedef long int32_t;
+typedef short int16_t;
+#endif
+
+// Ensure delay function is available
+#ifndef delay
+#define delay(x) ::delay(x)
+#endif
+
 #include <Wire.h>
 #include <esp_system.h>
+#include <WiFi.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SH110X.h>
 #include <Adafruit_NeoPixel.h>
@@ -24,6 +40,9 @@
 #include "config.h"
 #include "clock.h"
 #include "notification.h"
+#include "gemini_ai.h"
+#include "ai_companion.h"
+
 
 // =============================================================================
 // GLOBAL VARIABLES & CONSTANTS
@@ -153,6 +172,8 @@ Adafruit_SH1106G display(SCREEN_W, SCREEN_H, &Wire, OLED_RESET); // Must exist B
 #include "include/Pixeboy20.h"
 // Notification (Vietnamese-capable)
 #include "include/ShopeeRegular12.h"
+// Toast with emoji support
+#include "include/ToastRenderer.h"
 
 // =============================================================================
 // GLOBAL CONSTANTS & CONFIGURATION
@@ -224,6 +245,9 @@ uint8_t         savedTalkativeLevel = BOT_TALKATIVE_LEVEL; // last non-zero leve
 // Touch edge tracker to improve responsiveness on non-eyes faces
 static uint32_t lastTouchEdgeMs = 0;
 
+// === Gemini AI Integration === (moved to ai_companion module)
+// AI state variables now managed by AICompanion namespace
+
 // === Debug System Variables ===
 static float last_ax = 0, last_ay = 0, last_az = 0;
 static float last_gx = 0, last_gy = 0, last_gz = 0;
@@ -237,12 +261,13 @@ uint8_t volume = AUDIO_DEFAULT_VOLUME;         // 0..255
 // Important: include RoboEyes AFTER the global 'display' is instantiated
 #include <FluxGarage_RoboEyes.h>
 
+#include "animation_engine.h"
 roboEyes Eyes;
 // Control RoboEyes flushing/viewport so HUD/toast can overlay without flicker
 bool gEyesAutoFlush = true;   // default true; disabled while toast is visible
 int  gEyesViewportYMax = 0;   // 0 = full screen, else max Y (exclusive)
 
-// Thin wrappers so motion.cpp can control RoboEyes without including its header
+// Thin wrappers so motion.cpp and animation_engine.cpp can control RoboEyes without including its header
 void Eyes_SetMood(uint8_t mood) { Eyes.setMood(mood); }
 void Eyes_SetHFlicker(bool on, int level) { Eyes.setHFlicker(on, level); }
 void Eyes_SetVFlicker(bool on, int level) { Eyes.setVFlicker(on, level); }
@@ -253,6 +278,10 @@ void Eyes_Blink() {
     Audio::sfxBlink();
   }
 }
+
+// Additional wrappers for animation engine
+void Eyes_SetPosition(unsigned char position) { Eyes.setPosition(position); }
+void Eyes_Open() { Eyes.open(); }
 
 // REMOVED: Furious jiggle variables moved to GLOBAL VARIABLES section above
 
@@ -404,15 +433,92 @@ static bool tripleTap(uint8_t pin, bool activeHigh=true, uint16_t debounceMs=12,
   return false;
 }
 
-// FUNC button hold → BLE toggle (non-blocking)
+// FUNC button controls (non-blocking)
 enum BleUiState { BLEUI_IDLE, BLEUI_PROMPT, BLEUI_ENABLING, BLEUI_DISABLING, BLEUI_DONE };
 BleUiState bleUi = BLEUI_IDLE;
 uint32_t   bleUiT0 = 0;
 uint32_t   btnDownT0 = 0;
+bool        wifiEnabled = false;  // Track WiFi state
 // HOLD_TIME_MS comes from config.h
+
+// === AI and Animation functions moved to separate modules ===
+// See ai_companion.cpp and animation_engine.cpp
+
+// Detect double press on FUNC button
+bool detectDoublePress() {
+  static uint32_t lastPressTime = 0;
+  static uint32_t pressCount = 0;
+  static bool wasPressed = false;
+
+  bool isPressed = (digitalRead(FUNC_BTN) == LOW);
+  uint32_t currentTime = millis();
+
+  if (isPressed && !wasPressed) {
+    // Button just pressed
+    if (currentTime - lastPressTime < 500) { // 500ms window for double press
+      pressCount++;
+    } else {
+      pressCount = 1;
+    }
+    lastPressTime = currentTime;
+  }
+
+  wasPressed = isPressed;
+
+  // Check for double press
+  if (pressCount >= 2 && (currentTime - lastPressTime > 100)) {
+    pressCount = 0;
+    return true;
+  }
+
+  return false;
+}
 
 void updateBleToggleUI() {
   bool btn = (digitalRead(FUNC_BTN)==LOW);
+
+  // Check for double press (WiFi toggle) first
+  if (detectDoublePress()) {
+    if (ENABLE_WIFI && ENABLE_GEMINI_AI) {
+      wifiEnabled = !wifiEnabled;
+      if (wifiEnabled) {
+        Serial.println("WiFi: ENABLING");
+        showToast("WiFi: ENABLING", 2000);
+        WiFi.mode(WIFI_STA);
+        WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+
+        // Wait for connection with timeout
+        unsigned long wifiStartTime = millis();
+        while (WiFi.status() != WL_CONNECTED && (millis() - wifiStartTime) < WIFI_CONNECT_TIMEOUT_MS) {
+          delay(500);
+          Serial.print(".");
+        }
+
+        if (WiFi.status() == WL_CONNECTED) {
+          Serial.println("\nWiFi connected!");
+          Serial.printf("IP Address: %s\n", WiFi.localIP().toString().c_str());
+          showToast("WiFi Connected! 📶", 2000);
+
+          // Re-initialize AI if WiFi is now available
+          if (DogeAI.begin(GEMINI_API_KEY)) {
+            Serial.println("Gemini AI enabled - Send messages with 'AI:', '@doge', or 'DogePet:' prefix");
+            showToast("AI Ready! 🤖✨", 2000);
+          }
+        } else {
+          Serial.println("\nWiFi connection failed!");
+          showToast("WiFi Failed 😢", 3000);
+          wifiEnabled = false; // Reset flag on failure
+        }
+      } else {
+        Serial.println("WiFi: DISABLING");
+        showToast("WiFi: DISABLED", 2000);
+        WiFi.disconnect(true);
+        // AI will be disabled automatically due to no WiFi
+      }
+      Audio::sfxConfirm();
+    }
+    return; // Don't process as BLE toggle
+  }
 
   // If the face is active, keep BLE toggle completely minimal: no screen
   // updates or flashing. We still respect the hold time but only toggle
@@ -592,7 +698,7 @@ inline void checkMicrophoneNoise() {
   if (currentMs - lastDebugMs > 1000) {
     bool audioPlaying = Audio::isAudioPlaying();
     bool micCooldown = Audio::isMicrophoneInCooldown();
-    Serial.printf("Mic Level: %.2f (Threshold: %.2f, Gain: 64x) | Audio: %s | Cooldown: %s\n",
+    Serial.printf("Mic Level: %.2f (Threshold: %.2f, Gain: 80x) | Audio: %s | Cooldown: %s\n",
                   micLevel, MIC_NOISE_THRESHOLD,
                   audioPlaying ? "PLAYING" : "IDLE",
                   micCooldown ? "YES" : "NO");
@@ -607,19 +713,35 @@ inline void checkMicrophoneNoise() {
     if (currentMs - lastNoiseReactionMs >= MIC_COOLDOWN_MS) {
       Serial.printf("Loud noise detected! Level: %.2f\n", micLevel);
 
-      // Different reactions based on consecutive noise detections
-      if (consecutiveNoiseCount >= 3) {
-        // Multiple loud noises - get startled/annoyed
-        setEyesMood(MS_ANGRY);
-        moodUntil = currentMs + MOOD_HOLD_MS;
-        if (ENABLE_MOOD_SFX) Audio::playCuteNo(200);
-        showToast("Hey! Too loud!", 1500);
-  } else {
-        // Single loud noise - curious reaction
-        setEyesMood(MS_HAPPY);
-        moodUntil = currentMs + MOOD_HOLD_MS / 2;
-        if (ENABLE_MOOD_SFX) Audio::playCuteQuestion(200);
-        showToast("Huh? What was that?", 1200);
+      // If Gemini AI is connected, send voice detection to AI
+      if (ENABLE_GEMINI_AI && wifiEnabled && DogeAI.isEnabled() && DogeAI.isReady()) {
+        // Different AI prompts based on consecutive noise detections
+        if (consecutiveNoiseCount >= 3) {
+          // Multiple loud noises - annoyed reaction
+          Serial.println("[MIC DEBUG] Sending annoyed voice reaction to AI");
+          String aiPrompt = "[VOICE_TRIGGER] I detected multiple loud noises around me. I'm getting a bit annoyed by all this noise. How should I react?";
+          AICompanion::handleMessage(aiPrompt.c_str());
+        } else {
+          // Single loud noise - curious reaction
+          Serial.println("[MIC DEBUG] Sending curious voice reaction to AI");
+          String aiPrompt = "[VOICE_TRIGGER] I just heard a loud noise nearby! I'm curious about what made that sound. How should I respond?";
+          AICompanion::handleMessage(aiPrompt.c_str());
+        }
+      } else {
+        // Fallback to original behavior when AI not available
+        if (consecutiveNoiseCount >= 3) {
+          // Multiple loud noises - get startled/annoyed
+          setEyesMood(MS_ANGRY);
+          moodUntil = currentMs + MOOD_HOLD_MS;
+          if (ENABLE_MOOD_SFX) Audio::playCuteNo(200);
+          showToast("Hey! Too loud!", 1500);
+        } else {
+          // Single loud noise - curious reaction
+          setEyesMood(MS_HAPPY);
+          moodUntil = currentMs + MOOD_HOLD_MS / 2;
+          if (ENABLE_MOOD_SFX) Audio::playCuteQuestion(200);
+          showToast("Huh? What was that?", 1200);
+        }
       }
 
       // Reset consecutive count after reaction
@@ -721,6 +843,37 @@ void setup() {
     n.message.toCharArray(lastNotifBody, sizeof(lastNotifBody));
     lastNotifBody[sizeof(lastNotifBody)-1] = '\0';
 
+    // Check for AI messages (special prefixes)
+    bool isAIMessage = false;
+    char aiMessage[256] = {0};
+
+    // AI message patterns
+    if (strstr(lastNotifBody, "AI:") == lastNotifBody ||
+        strstr(lastNotifBody, "@doge") == lastNotifBody ||
+        strstr(lastNotifBody, "DogePet:") == lastNotifBody) {
+
+      // Extract message after prefix
+      const char* msgStart = strstr(lastNotifBody, ":");
+      if (msgStart) {
+        msgStart++; // Skip the colon
+        // Skip whitespace
+        while (*msgStart == ' ' || *msgStart == '\t') msgStart++;
+
+        if (strlen(msgStart) > 0) {
+          isAIMessage = true;
+          strncpy(aiMessage, msgStart, sizeof(aiMessage) - 1);
+          Serial.printf("AI Message detected: %s\n", aiMessage);
+        }
+      }
+    }
+
+    // Handle AI messages
+    if (isAIMessage) {
+      AICompanion::handleMessage(aiMessage);
+      return; // Don't process as regular notification
+    }
+
+    // Regular notification processing
     // Reset notification scroll position for new notification
     notifScrollX = 0;
     notifScrollT0 = 0;
@@ -776,6 +929,57 @@ void setup() {
   }
   volume = AUDIO_DEFAULT_VOLUME;
   Audio::setMasterVolume(volume);
+  // Initialize WiFi for AI features (if enabled by default)
+  if (ENABLE_WIFI && ENABLE_GEMINI_AI) {
+    wifiEnabled = true; // Start with WiFi enabled
+    Serial.println("Connecting to WiFi...");
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+
+    // Wait for connection with timeout
+    unsigned long wifiStartTime = millis();
+    while (WiFi.status() != WL_CONNECTED && (millis() - wifiStartTime) < WIFI_CONNECT_TIMEOUT_MS) {
+      delay(500);
+      Serial.print(".");
+    }
+
+    if (WiFi.status() == WL_CONNECTED) {
+      Serial.println("\nWiFi connected!");
+      Serial.printf("IP Address: %s\n", WiFi.localIP().toString().c_str());
+      showToast("WiFi Connected! 📶", 2000);
+    } else {
+      Serial.println("\nWiFi connection failed!");
+      showToast("WiFi Failed 😢", 3000);
+      wifiEnabled = false; // Reset flag on failure
+    }
+  }
+
+  // Initialize Gemini AI
+  Serial.printf("[SETUP DEBUG] AI initialization - ENABLE_GEMINI_AI: %s, API key set: %s, WiFi status: %d\n",
+               ENABLE_GEMINI_AI ? "true" : "false",
+               (GEMINI_API_KEY && strlen(GEMINI_API_KEY) > 0) ? "true" : "false",
+               WiFi.status());
+  
+  if (ENABLE_GEMINI_AI && GEMINI_API_KEY && strlen(GEMINI_API_KEY) > 0) {
+    if (WiFi.status() == WL_CONNECTED) {
+      Serial.println("[SETUP DEBUG] WiFi connected, initializing AI");
+      if (DogeAI.begin(GEMINI_API_KEY)) {
+        Serial.println("[SETUP DEBUG] Gemini AI initialized successfully");
+        Serial.println("Gemini AI enabled - Send messages with 'AI:', '@doge', or 'DogePet:' prefix");
+        Serial.println("[SETUP DEBUG] You can also send 'AI: test' via BLE to test manually");
+        showToast("AI Ready! 🤖", 2000);
+      } else {
+        Serial.printf("[SETUP DEBUG] Failed to initialize Gemini AI: %s\n", DogeAI.getLastError());
+        showToast("AI Init Failed", 2000);
+      }
+    } else {
+      Serial.println("[SETUP DEBUG] AI disabled - WiFi not connected");
+      showToast("AI: No WiFi", 3000);
+    }
+  } else {
+    Serial.println("[SETUP DEBUG] Gemini AI disabled - check config.h settings");
+  }
+
   // Defer startup SFX until loop() begins to ensure I2S is fully ready
 }
 
@@ -794,6 +998,15 @@ void loop() {
 
   // Microphone noise detection
   checkMicrophoneNoise();
+
+  // Background AI chatter
+  static uint32_t lastDebugMs = 0;
+  if (currentMs - lastDebugMs > 10000) { // Debug every 10 seconds
+    Serial.printf("[MAIN DEBUG] Loop running, WiFi enabled: %s, currentMs: %lu\n", 
+                 wifiEnabled ? "true" : "false", currentMs);
+    lastDebugMs = currentMs;
+  }
+  AICompanion::handleBackgroundChatter();
 
   // Face switching (hold on TOUCH_PIN to avoid conflict with triple tap)
   {
@@ -831,11 +1044,11 @@ void loop() {
       savedTalkativeLevel = (talkativeLevel == 0) ? BOT_TALKATIVE_LEVEL : talkativeLevel;
       talkativeLevel = 0;
       if (ENABLE_MODE_SFX) Audio::sfxError();
-      showToast("Silent mode", 1200);Serial.println("Silent mode");
+      showToast("Silent mode 🤫", 1200);Serial.println("Silent mode");
     } else {
       talkativeLevel = savedTalkativeLevel;
       if (ENABLE_MODE_SFX) Audio::sfxConfirm();
-      showToast("Chatty mode", 1200);Serial.println("Chatty mode");
+      showToast("Chatty mode 🎵", 1200);Serial.println("Chatty mode");
     }
   }
 

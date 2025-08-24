@@ -1,6 +1,7 @@
 {
     "files.associations": {
         "cstdint": "cpp",
-        "compare": "cpp"
+        "compare": "cpp",
+        "chrono": "cpp"
     }
 }
