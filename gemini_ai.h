@@ -51,6 +51,9 @@ public:
     void enable(bool state) { enabled = state; }
     bool isEnabled() { return enabled; }
 
+    // Optional: clear stored model history
+    void clearHistory() { hasHistory = false; lastModelText[0] = '\0'; }
+
 private:
     // API key storage
     char apiKey[GEMINI_API_KEY_MAX_LEN];
@@ -61,6 +64,10 @@ private:
 
     // HTTP client state
     bool enabled;
+
+    // Minimal chat history (previous model reply)
+    bool hasHistory = false;
+    char lastModelText[GEMINI_MAX_RESPONSE_LEN];
 
     // HTTP request helper
     bool makeHttpRequest(const char* jsonPayload, char* response, size_t maxResponseLen);

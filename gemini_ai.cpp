@@ -65,7 +65,17 @@ bool GeminiAI::sendMessage(const char* message, char* response, size_t maxRespon
     // Build JSON request
     char jsonBuffer[1024];
     Serial.println("[GEMINI DEBUG] Building JSON request");
-    size_t jsonLen = buildRequestJson(message, jsonBuffer, sizeof(jsonBuffer));
+    // If we have prior model text, prepend it as a system-style context
+    char contextualMsg[768];
+    if (hasHistory && lastModelText[0]) {
+        // Keep it small to save tokens
+        snprintf(contextualMsg, sizeof(contextualMsg),
+                 "Previous reply for context: %s\nCurrent: %s",
+                 lastModelText, message);
+    } else {
+        strlcpy(contextualMsg, message, sizeof(contextualMsg));
+    }
+    size_t jsonLen = buildRequestJson(contextualMsg, jsonBuffer, sizeof(jsonBuffer));
     Serial.printf("[GEMINI DEBUG] JSON built, length: %d\n", jsonLen);
     if (jsonLen == 0) {
         currentState = AI_ERROR;
@@ -81,13 +91,16 @@ bool GeminiAI::sendMessage(const char* message, char* response, size_t maxRespon
     bool success = makeHttpRequest(jsonBuffer, response, maxResponseLen);
 
     if (success) {
-        currentState = AI_IDLE;
         Serial.printf("[GEMINI DEBUG] Success! Response: %s\n", response);
+        // Store last model text for minimal history
+        strlcpy(lastModelText, response, sizeof(lastModelText));
+        hasHistory = true;
     } else {
-        currentState = AI_ERROR;
         Serial.printf("[GEMINI DEBUG] HTTP request failed: %s\n", lastError);
     }
 
+    // Always return to IDLE to allow retries even after errors
+    currentState = AI_IDLE;
     return success;
 }
 
@@ -100,7 +113,7 @@ size_t GeminiAI::buildRequestJson(const char* userMessage, char* buffer, size_t 
     doc["contents"][0]["role"] = "user";
 
     // Add generation config for shorter responses
-    doc["generationConfig"]["maxOutputTokens"] = 100;
+    doc["generationConfig"]["maxOutputTokens"] = 250;
     doc["generationConfig"]["temperature"] = 0.8;
 
     size_t len = serializeJson(doc, buffer, bufferSize);

@@ -51,9 +51,9 @@ typedef short int16_t;
 enum FaceMode : uint8_t;
 enum MoodState : uint8_t;
 // === Toast overlay (non-blocking notifications) ===
-// Reduced from String to fixed char array to save memory
-char  toastText[64]; // Increased size for binary sequences
-char  toastFullText[64]; // Full text to be displayed
+// Fixed-size buffers for lightweight typewriter/scatter overlay
+char  toastText[200];      // visible portion (typewriter)
+char  toastFullText[250];  // full text to be displayed
 uint32_t toastUntil = 0;
 bool toastVisible = false; // Track if toast is currently visible to reduce flicker
 uint32_t lastToastDrawMs = 0; // Prevent too frequent toast updates
@@ -698,10 +698,10 @@ inline void checkMicrophoneNoise() {
   if (currentMs - lastDebugMs > 1000) {
     bool audioPlaying = Audio::isAudioPlaying();
     bool micCooldown = Audio::isMicrophoneInCooldown();
-    Serial.printf("Mic Level: %.2f (Threshold: %.2f, Gain: 80x) | Audio: %s | Cooldown: %s\n",
-                  micLevel, MIC_NOISE_THRESHOLD,
-                  audioPlaying ? "PLAYING" : "IDLE",
-                  micCooldown ? "YES" : "NO");
+    //Serial.printf("Mic Level: %.2f (Threshold: %.2f, Gain: 80x) | Audio: %s | Cooldown: %s\n",
+    //              micLevel, MIC_NOISE_THRESHOLD,
+    //              audioPlaying ? "PLAYING" : "IDLE",
+    //              micCooldown ? "YES" : "NO");
     lastDebugMs = currentMs;
   }
 

@@ -46,7 +46,7 @@ namespace AICompanion {
         prompt += "{\n";
         prompt += "  \"animation\": \"eye animation parameters (e.g., blink, look_left, look_right, widen, narrow, happy, sad, curious, angry)\",\n";
         prompt += "  \"sound_fx\": \"sound effect to play (e.g., curious, happy, thinking, chatter, question, surprise)\",\n";
-        prompt += "  \"toast_message\": \"short message to display on screen (keep under 30 chars)\",\n";
+        prompt += "  \"toast_message\": \"short message to display on screen (keep under 200 chars)\",\n";
         prompt += "  \"thought\": \"your inner thoughts or random observation (1-2 sentences)\"\n";
         prompt += "}\n\n";
         prompt += "Choose one of these scenarios:\n";
@@ -116,6 +116,7 @@ namespace AICompanion {
     // Parse AI response and execute robot actions
     void executeAIActions(const char* aiResponse) {
         String response = String(aiResponse);
+        bool didShowToast = false;
 
         // Extract animation command
         String animation = extractJsonValue(response, "animation");
@@ -133,6 +134,7 @@ namespace AICompanion {
         String toastMessage = extractJsonValue(response, "toast_message");
         if (toastMessage.length() > 0) {
             showToast(toastMessage, 4000);
+            didShowToast = true;
         }
 
         // Extract thought (display as longer toast if no specific message)
@@ -143,6 +145,14 @@ namespace AICompanion {
                 thought = thought.substring(0, 57) + "...";
             }
             showToast(thought, 5000);
+            didShowToast = true;
+        }
+
+        // Fallback: if no structured fields were actionable, show raw response as toast
+        if (!didShowToast) {
+            String fallback = response;
+            if (fallback.length() > 60) fallback = fallback.substring(0, 57) + "...";
+            showToast(fallback, 5000);
         }
     }
 
@@ -172,50 +182,54 @@ namespace AICompanion {
 
     // Handle background AI chatter
     void handleBackgroundChatter() {
-        Serial.println("[DEBUG] handleBackgroundChatter() called");
+        if (ENABLE_AI_DEBUG_LOGS) Serial.println("[DEBUG] handleBackgroundChatter() called");
         
         if (!ENABLE_AI_CHATTER) {
-            Serial.println("[DEBUG] AI_CHATTER disabled in config");
+            if (ENABLE_AI_DEBUG_LOGS) Serial.println("[DEBUG] AI_CHATTER disabled in config");
             return;
         }
         
         if (!ENABLE_GEMINI_AI) {
-            Serial.println("[DEBUG] GEMINI_AI disabled in config");
+            if (ENABLE_AI_DEBUG_LOGS) Serial.println("[DEBUG] GEMINI_AI disabled in config");
             return;
         }
         
         if (!wifiEnabled) {
-            Serial.println("[DEBUG] WiFi not enabled");
+            if (ENABLE_AI_DEBUG_LOGS) Serial.println("[DEBUG] WiFi not enabled");
             return;
         }
 
         uint32_t currentMs = millis();
         uint32_t timeSinceLastChatter = currentMs - lastAIChatterMs;
-        Serial.printf("[DEBUG] Time since last chatter: %lu ms (interval: %lu ms)\n", 
+        if (ENABLE_AI_DEBUG_LOGS) Serial.printf("[DEBUG] Time since last chatter: %lu ms (interval: %lu ms)\n", 
                      timeSinceLastChatter, AI_CHATTER_INTERVAL_MS);
         
         if (timeSinceLastChatter < AI_CHATTER_INTERVAL_MS) {
-            Serial.printf("[DEBUG] Not time for chatter yet, waiting %lu ms\n", 
-                         AI_CHATTER_INTERVAL_MS - timeSinceLastChatter);
+            static uint32_t lastNotTimeLog = 0;
+            if (ENABLE_AI_DEBUG_LOGS && currentMs - lastNotTimeLog > 3000) {
+                Serial.printf("[DEBUG] Not time for chatter yet, waiting %lu ms\n", 
+                             AI_CHATTER_INTERVAL_MS - timeSinceLastChatter);
+                lastNotTimeLog = currentMs;
+            }
             return;
         }
 
         // Only chatter when idle (not processing other messages)
         if (!DogeAI.isReady()) {
-            Serial.printf("[DEBUG] DogeAI not ready, state: %d\n", DogeAI.getState());
+            if (ENABLE_AI_DEBUG_LOGS) Serial.printf("[DEBUG] DogeAI not ready, state: %d\n", DogeAI.getState());
             return;
         }
 
-        Serial.println("[DEBUG] Starting AI background chatter");
+        if (ENABLE_AI_DEBUG_LOGS) Serial.println("[DEBUG] Starting AI background chatter");
         lastAIChatterMs = currentMs;
 
         // Generate a random prompt and send to AI
         String prompt = generateChatterPrompt();
-        Serial.printf("[DEBUG] Generated prompt: %s\n", prompt.c_str());
+        if (ENABLE_AI_DEBUG_LOGS) Serial.printf("[DEBUG] Generated prompt: %s\n", prompt.c_str());
 
         // Send with a special marker to distinguish from user messages
         String aiPrompt = "[THINKING] " + prompt;
-        Serial.printf("[DEBUG] Sending to handleMessage: %s\n", aiPrompt.c_str());
+        if (ENABLE_AI_DEBUG_LOGS) Serial.printf("[DEBUG] Sending to handleMessage: %s\n", aiPrompt.c_str());
         handleMessage(aiPrompt.c_str());
     }
 
@@ -248,20 +262,30 @@ namespace AICompanion {
             return;
         }
 
-        // Check cooldown
+        // Check cooldown (skip if voice triggered)
         uint32_t timeSinceLastSend = millis() - lastAISendMs;
-        Serial.printf("[DEBUG] Time since last send: %lu ms (cooldown: %lu ms)\n", 
+        bool isBackgroundChatter = strstr(message, "[THINKING]") != nullptr;
+        bool isVoiceTrigger = strstr(message, "[VOICE_TRIGGER]") != nullptr;
+        if (ENABLE_AI_DEBUG_LOGS) Serial.printf("[DEBUG] Time since last send: %lu ms (cooldown: %lu ms)\n", 
                      timeSinceLastSend, GEMINI_COOLDOWN_MS);
-        
-        if (timeSinceLastSend < GEMINI_COOLDOWN_MS) {
-            Serial.printf("[DEBUG] AI cooldown active - waiting %lu ms\n", 
-                         GEMINI_COOLDOWN_MS - timeSinceLastSend);
+        // Use randomized cooldown window; skip for voice triggers
+        uint32_t cdMin = GEMINI_COOLDOWN_MIN_MS;
+        uint32_t cdMax = GEMINI_COOLDOWN_MAX_MS;
+        if (cdMax < cdMin) { uint32_t t = cdMin; cdMin = cdMax; cdMax = t; }
+        uint32_t effectiveCooldown = GEMINI_COOLDOWN_MS;
+        if (cdMax > cdMin) {
+            // Choose a deterministic pseudo-random cooldown per cycle
+            uint32_t jitter = (uint32_t)(esp_random() % (cdMax - cdMin + 1));
+            effectiveCooldown = cdMin + jitter;
+        }
+        if (!isVoiceTrigger && timeSinceLastSend < effectiveCooldown) {
+            if (ENABLE_AI_DEBUG_LOGS) Serial.printf("[DEBUG] AI cooldown active - waiting %lu ms\n", 
+                         effectiveCooldown - timeSinceLastSend);
             return;
         }
 
         // Check message type
-        bool isBackgroundChatter = strstr(message, "[THINKING]") != nullptr;
-        bool isVoiceTrigger = strstr(message, "[VOICE_TRIGGER]") != nullptr;
+        // Note: isBackgroundChatter and isVoiceTrigger moved above for cooldown logic
         
         String messageType = "user message";
         if (isBackgroundChatter) messageType = "background chatter";
@@ -282,9 +306,25 @@ namespace AICompanion {
         }
 
         Serial.println("[DEBUG] Calling DogeAI.sendMessage()");
-        
+
+        // For voice triggers, wrap with strict concise instruction
+        const char* sendPtr = message;
+        String wrapped;
+        if (isVoiceTrigger) {
+            wrapped.reserve(512);
+            wrapped += GEMINI_SYSTEM_PROMPT;
+            wrapped += "\n\nTask: Respond to user talking to you with a short, friendly one-line reaction suitable for a tiny screen.\n";
+            wrapped += "Constraints:\n- 200 characters max\n- Plain text only (no markdown)\n- Include an appropriate emoji\n- No lists, no numbered steps\n\n";
+            // Strip tag from user content
+            const char* content = strstr(message, "]");
+            if (content && *(content+1) == ' ') content += 2; else content = message;
+            wrapped += "User: ";
+            wrapped += content;
+            sendPtr = wrapped.c_str();
+        }
+
         // Send message to Gemini
-        if (DogeAI.sendMessage(message, aiResponse, sizeof(aiResponse))) {
+        if (DogeAI.sendMessage(sendPtr, aiResponse, sizeof(aiResponse))) {
             lastAISendMs = millis();
             Serial.printf("[DEBUG] AI Response received: %s\n", aiResponse);
 
@@ -294,6 +334,8 @@ namespace AICompanion {
             } else if (isVoiceTrigger) {
                 Serial.println("[DEBUG] Processing as voice trigger - calling executeAIActions()");
                 executeAIActions(aiResponse);
+                // Force immediate toast of raw AI text to avoid showing the prompt accidentally
+                showToast(String(aiResponse), 5000);
             } else {
                 Serial.println("[DEBUG] Processing as user message - showing response toast");
                 showToast(String(aiResponse), 5000);

@@ -26,8 +26,8 @@ static const uint8_t FRAME_RADIUS = 8;
 static const uint8_t FRAME_THICKNESS = 2;
 
 // Scatter drawing state (stable per character)
-static int16_t scatterX[64];
-static int16_t scatterY[64];
+static int16_t scatterX[200];
+static int16_t scatterY[250];
 
 // UI helper functions
 static inline void drawSharedFrame(Adafruit_SH1106G& display, int fx, int fy, int fw, int fh) {

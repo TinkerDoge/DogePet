@@ -16,8 +16,8 @@ void drawToastIfAny(Adafruit_SH1106G& display);
 // External variables needed by notification (will be accessed from main)
 extern char lastNotifTitle[64];
 extern char lastNotifBody[128];
-extern char toastText[64];
-extern char toastFullText[64];
+extern char toastText[200];
+extern char toastFullText[250];
 extern uint32_t toastUntil;
 extern bool toastVisible;
 extern uint32_t lastToastDrawMs;

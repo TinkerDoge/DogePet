@@ -127,9 +127,16 @@ static constexpr bool      DEFAULT_JIGGLING         = true;
 
 // === Gemini AI Configuration ===
 static constexpr bool      ENABLE_GEMINI_AI         = true;  // Enable AI features
+// Debug logging for AI (set to true to see detailed logs)
+static constexpr bool      ENABLE_AI_DEBUG_LOGS     = false;
 static constexpr const char* GEMINI_API_KEY         = "AIzaSyBUI39g_byb1KUm_iNkvQF4y86mxCV8A28";    // Set your API key here
 static constexpr const char* GEMINI_MODEL           = "gemini-1.5-flash";    // AI model to use
+//static constexpr const char* GEMINI_MODEL           = "gemini-2.5-flash";    // AI model to use
+
 static constexpr uint32_t  GEMINI_COOLDOWN_MS      = 30000; // Minimum time between AI requests
+// Randomized cooldown range (used instead of fixed, unless both are equal)
+static constexpr uint32_t  GEMINI_COOLDOWN_MIN_MS  = 10000; // 10 seconds
+static constexpr uint32_t  GEMINI_COOLDOWN_MAX_MS  = 60000; // 60 seconds
 static constexpr bool      ENABLE_AI_CHATTER        = true;  // Enable background AI conversations
 static constexpr uint32_t  AI_CHATTER_INTERVAL_MS   = 30000; // 30 seconds between background chatter (for testing)
 
