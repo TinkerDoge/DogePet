@@ -29,6 +29,11 @@ static const uint8_t FRAME_THICKNESS = 2;
 static int16_t scatterX[200];
 static int16_t scatterY[250];
 
+// Toast marquee scroll state (for long banner text)
+static int16_t toastScrollX = 0;           // current scroll offset in pixels
+static uint32_t toastScrollLastMs = 0;     // last time we advanced scroll
+static bool toastScrollActive = false;     // whether marquee is active
+
 // UI helper functions
 static inline void drawSharedFrame(Adafruit_SH1106G& display, int fx, int fy, int fw, int fh) {
   for (uint8_t t=0; t<FRAME_THICKNESS; ++t) {
@@ -61,6 +66,10 @@ void drawToastIfAny(Adafruit_SH1106G& display) {
     }
     toastTypePos++;
     lastToastTypeMs = currentMs;
+  }
+  // If we've finished typing all characters, stop typewriter so marquee can engage
+  if (shouldBeVisible && toastTypewriter && toastTypePos >= strlen(toastFullText)) {
+    toastTypewriter = false;
   }
 
   // Handle toast timeout - clear the toast when it expires
@@ -101,22 +110,63 @@ void drawToastIfAny(Adafruit_SH1106G& display) {
       display.fillRect(bx, by, bw, bh, SH110X_BLACK);
       if (!toastNoFrame) display.drawRect(bx, by, bw, bh, SH110X_WHITE);
 
-      // Measure current text width for cursor placement
+      // Measure full text width (for marquee decision)
       int16_t x1, y1; uint16_t w, h;
-      ToastRenderer::getToastTextBounds(String(toastText), x1, y1, w, h);
+      ToastRenderer::getToastTextBounds(String(toastFullText), x1, y1, w, h);
 
       // Left padding inside banner
       const int padX = 4;
       const int padY = 2;
-      
-      // Use ToastRenderer for emoji support
-      int textY = by + padY + ToastFont12::Ascent; // Baseline position
-      ToastRenderer::drawToastText(display, bx + padX, textY, String(toastText), SH110X_WHITE);
 
-      // Add cursor for typewriter effect
-      if (toastTypewriter && toastTypePos < strlen(toastFullText)) {
-        if ((currentMs / 150) % 2 == 0) { // fast blink
-          ToastRenderer::drawToastText(display, bx + padX + (int)w, textY, "_", SH110X_WHITE);
+      // Determine if marquee is needed
+      int textY = by + padY + ToastFont12::Ascent; // Baseline position
+      int visibleW = bw - 2 * padX;
+      bool needMarquee = (int)w > visibleW;
+
+      // If text is longer than banner, skip typewriter and enable marquee immediately
+      if (needMarquee && toastTypewriter) {
+        toastTypewriter = false;
+      }
+
+      if (!needMarquee) {
+        // Draw normally (typewriter shows current portion)
+        ToastRenderer::drawToastText(display, bx + padX, textY, String(toastText), SH110X_WHITE);
+        // Add cursor for typewriter effect
+        if (toastTypewriter && toastTypePos < strlen(toastFullText)) {
+          uint16_t cw; int16_t _x,_y; uint16_t _h;
+          ToastRenderer::getToastTextBounds(String(toastText), _x, _y, cw, _h);
+          if ((currentMs / 150) % 2 == 0) {
+            ToastRenderer::drawToastText(display, bx + padX + (int)cw, textY, "_", SH110X_WHITE);
+          }
+        }
+        toastScrollActive = false;
+        toastScrollX = 0;
+        toastScrollLastMs = currentMs;
+      } else {
+        // Activate marquee scrolling once typewriter finished
+        if (toastTypewriter) {
+          // While typing, still draw the partial text from left
+          ToastRenderer::drawToastText(display, bx + padX, textY, String(toastText), SH110X_WHITE);
+        } else {
+          if (!toastScrollActive) {
+            toastScrollActive = true;
+            toastScrollX = 0;
+            toastScrollLastMs = currentMs;
+          }
+          // Advance scroll every ~90ms
+          const uint32_t MARQUEE_DT = 90;
+          if (currentMs - toastScrollLastMs >= MARQUEE_DT) {
+            toastScrollLastMs = currentMs;
+            toastScrollX++;
+            if (toastScrollX > (int)w + 12) {
+              toastScrollX = 0; // loop
+            }
+          }
+          // Render scrolling text: shift left by toastScrollX
+          int startX = bx + padX - toastScrollX;
+          // Draw the text twice to create seamless loop
+          ToastRenderer::drawToastText(display, startX, textY, String(toastFullText), SH110X_WHITE);
+          ToastRenderer::drawToastText(display, startX + (int)w + 12, textY, String(toastFullText), SH110X_WHITE);
         }
       }
     }

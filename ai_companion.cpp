@@ -5,6 +5,7 @@
 #include "animation_engine.h"
 #include "motion.h"
 #include <ChronosESP32.h>
+#include <string.h>
 
 // Ensure stdint types are available
 #ifndef uint32_t
@@ -16,6 +17,43 @@ extern ChronosESP32 chrono;
 extern MoodState curMood;
 
 namespace AICompanion {
+    // Helper: strip markdown code fences (```...```) and inline backticks
+    static String stripCodeFences(const String& in) {
+        String s = in;
+        // Remove leading/trailing triple backtick blocks
+        int start = s.indexOf("```");
+        if (start >= 0) {
+            int end = s.indexOf("```", start + 3);
+            if (end > start) {
+                // Skip optional language tag after opening ```
+                int contentStart = s.indexOf('\n', start + 3);
+                if (contentStart < 0) contentStart = start + 3;
+                String inner = s.substring(contentStart + 1, end);
+                s = inner;
+            }
+        }
+        // Remove any stray backticks
+        s.replace("`", "");
+        return s;
+    }
+
+    // Helper: generate a short random cute thought
+    static String generateRandomThought() {
+        static const char* THOUGHTS[] = {
+            "I'm here and listening! 😊",
+            "What's up? 👀",
+            "Hi! Need me? 🤖✨",
+            "Ready when you are! 🌟",
+            "Thinking... but happy to chat! 🤔😊",
+            "Ping received! 💡",
+            "At your service! 🛠️",
+            "I like being called! 😄",
+            "Curious mode: ON! 🧠✨",
+            "Let's do this! 🚀"
+        };
+        int n = (int)(sizeof(THOUGHTS)/sizeof(THOUGHTS[0]));
+        return String(THOUGHTS[random(0, n)]);
+    }
     // AI state variables
     uint32_t lastAISendMs = 0;
     uint32_t lastAIChatterMs = 0;
@@ -116,6 +154,7 @@ namespace AICompanion {
     // Parse AI response and execute robot actions
     void executeAIActions(const char* aiResponse) {
         String response = String(aiResponse);
+        response = stripCodeFences(response);
         bool didShowToast = false;
 
         // Extract animation command
@@ -133,7 +172,7 @@ namespace AICompanion {
         // Extract toast message
         String toastMessage = extractJsonValue(response, "toast_message");
         if (toastMessage.length() > 0) {
-            showToast(toastMessage, 4000);
+            showToast(toastMessage, 8000);
             didShowToast = true;
         }
 
@@ -144,15 +183,19 @@ namespace AICompanion {
             if (thought.length() > 60) {
                 thought = thought.substring(0, 57) + "...";
             }
-            showToast(thought, 5000);
+            showToast(thought, 8000);
             didShowToast = true;
         }
 
         // Fallback: if no structured fields were actionable, show raw response as toast
         if (!didShowToast) {
             String fallback = response;
-            if (fallback.length() > 60) fallback = fallback.substring(0, 57) + "...";
-            showToast(fallback, 5000);
+            // If the cleaned response looks like JSON and has no toast_message, generate a random thought
+            if ((fallback.startsWith("{") || fallback.startsWith("[")) && extractJsonValue(fallback, "toast_message").length() == 0) {
+                fallback = generateRandomThought();
+            }
+            if (fallback.length() > 200) fallback = fallback.substring(0, 197) + "...";
+            showToast(fallback, 9000);
         }
     }
 
@@ -307,15 +350,16 @@ namespace AICompanion {
 
         Serial.println("[DEBUG] Calling DogeAI.sendMessage()");
 
-        // For voice triggers, wrap with strict concise instruction
+        // For voice triggers, wrap with concise "called by user" instruction that asks for a plain-text cute thought
         const char* sendPtr = message;
         String wrapped;
         if (isVoiceTrigger) {
             wrapped.reserve(512);
             wrapped += GEMINI_SYSTEM_PROMPT;
-            wrapped += "\n\nTask: Respond to user talking to you with a short, friendly one-line reaction suitable for a tiny screen.\n";
-            wrapped += "Constraints:\n- 200 characters max\n- Plain text only (no markdown)\n- Include an appropriate emoji\n- No lists, no numbered steps\n\n";
-            // Strip tag from user content
+            wrapped += "\n\nThe user is calling to you (not a noise).\n";
+            wrapped += "Reply with ONE short, cute random thought as PLAIN TEXT only.\n";
+            wrapped += "Constraints: <= 160 chars, include one emoji, no markdown, no quotes, no code.\n\n";
+            // Strip tag from user content (keep for context if present)
             const char* content = strstr(message, "]");
             if (content && *(content+1) == ' ') content += 2; else content = message;
             wrapped += "User: ";
@@ -332,10 +376,12 @@ namespace AICompanion {
                 Serial.println("[DEBUG] Processing as background chatter - calling executeAIActions()");
                 executeAIActions(aiResponse);
             } else if (isVoiceTrigger) {
-                Serial.println("[DEBUG] Processing as voice trigger - calling executeAIActions()");
-                executeAIActions(aiResponse);
-                // Force immediate toast of raw AI text to avoid showing the prompt accidentally
-                showToast(String(aiResponse), 5000);
+                Serial.println("[DEBUG] Processing as voice trigger - showing text toast");
+                String cleaned = stripCodeFences(String(aiResponse));
+                if (cleaned.length() > 200) cleaned = cleaned.substring(0, 197) + "...";
+                showToast(cleaned, 9000);
+                // Optional small friendly animation
+                AnimationEngine::executeEyeAnimation("happy");
             } else {
                 Serial.println("[DEBUG] Processing as user message - showing response toast");
                 showToast(String(aiResponse), 5000);

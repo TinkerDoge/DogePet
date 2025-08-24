@@ -108,7 +108,7 @@ static constexpr uint8_t   VBAT_CHARGE_MIN_COUNT = 2;     // consecutive reads t
 
 // === Audio defaults ===
 static constexpr uint32_t  AUDIO_SAMPLE_RATE   = 22050;
-static constexpr uint8_t   AUDIO_DEFAULT_VOLUME = 20;  // 0..255
+static constexpr uint8_t   AUDIO_DEFAULT_VOLUME = 50;  // 0..255
 
 // === Microphone (I2S Input) Configuration ===
 // Note: Microphone sensitivity is boosted with 64x gain in audio.cpp
@@ -130,7 +130,7 @@ static constexpr bool      ENABLE_GEMINI_AI         = true;  // Enable AI featur
 // Debug logging for AI (set to true to see detailed logs)
 static constexpr bool      ENABLE_AI_DEBUG_LOGS     = false;
 static constexpr const char* GEMINI_API_KEY         = "AIzaSyBUI39g_byb1KUm_iNkvQF4y86mxCV8A28";    // Set your API key here
-static constexpr const char* GEMINI_MODEL           = "gemini-1.5-flash";    // AI model to use
+static constexpr const char* GEMINI_MODEL           = "gemini-2.0-flash";    // AI model to use
 //static constexpr const char* GEMINI_MODEL           = "gemini-2.5-flash";    // AI model to use
 
 static constexpr uint32_t  GEMINI_COOLDOWN_MS      = 30000; // Minimum time between AI requests

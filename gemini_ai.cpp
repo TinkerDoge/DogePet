@@ -108,13 +108,19 @@ size_t GeminiAI::buildRequestJson(const char* userMessage, char* buffer, size_t 
     // Use ArduinoJson for memory-efficient JSON building
     StaticJsonDocument<1024> doc;
 
-    // Simplified structure - try without system instruction first
-    doc["contents"][0]["parts"][0]["text"] = userMessage;
+    // Single-turn prompt; nudge away from markdown/code fences
+    String noMd = String(userMessage);
+    noMd += "\n\nDo not use markdown or code fences.";
     doc["contents"][0]["role"] = "user";
-
-    // Add generation config for shorter responses
+    doc["contents"][0]["parts"][0]["text"] = noMd;
     doc["generationConfig"]["maxOutputTokens"] = 250;
     doc["generationConfig"]["temperature"] = 0.8;
+    // Add a lightweight safety instruction to avoid code fences
+    doc["safetySettings"][0]["category"] = "HARM_CATEGORY_HATE_SPEECH";
+    doc["safetySettings"][0]["threshold"] = "BLOCK_ONLY_HIGH";
+
+    // Nudge model away from markdown by appending a reminder
+    // (kept minimal to respect token budget)
 
     size_t len = serializeJson(doc, buffer, bufferSize);
     Serial.printf("[GEMINI DEBUG] Generated JSON (length: %d): %s\n", len, buffer);

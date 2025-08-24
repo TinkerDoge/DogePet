@@ -72,7 +72,14 @@ inline void showToastTypewriter(const String& s, uint16_t ms=3000, uint32_t type
   s.toCharArray(toastFullText, sizeof(toastFullText));
   toastFullText[sizeof(toastFullText)-1] = '\0'; // Ensure null termination
   toastText[0] = '\0'; // Clear current display text
-  toastUntil = millis() + ms;
+  // Ensure the toast stays long enough to finish typing plus a grace period
+  size_t len = strnlen(toastFullText, sizeof(toastFullText)-1);
+  uint32_t minMs = (uint32_t)len * typeSpeed + 2000; // typing time + 2s grace
+  uint32_t dur = (uint32_t)ms;
+  if (dur < minMs) dur = minMs;
+  // Cap to a reasonable upper bound to avoid runaway durations
+  if (dur > 45000) dur = 45000; // 45s max
+  toastUntil = millis() + (uint32_t)dur;
   toastVisible = true;
   toastTypewriter = true; // Enable typewriter effect
   toastTypePos = 0; // Start from beginning

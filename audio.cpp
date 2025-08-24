@@ -57,7 +57,7 @@ namespace Audio {
   static uint32_t lastAudioPlaybackMs = 0;
 
   // Microphone gain for sensitivity boost
-  static constexpr float MIC_GAIN = 84.0f; // Amplify microphone signal by 64x
+  static constexpr float MIC_GAIN = 64.0f; // Amplify microphone signal by 64x
 
   // Forward declaration for audio playback tracking
   static void updateAudioPlaybackState();
