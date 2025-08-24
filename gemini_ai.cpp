@@ -63,19 +63,21 @@ bool GeminiAI::sendMessage(const char* message, char* response, size_t maxRespon
     currentState = AI_PROCESSING;
 
     // Build JSON request
-    char jsonBuffer[1024];
+    char jsonBuffer[1536];
     Serial.println("[GEMINI DEBUG] Building JSON request");
-    // If we have prior model text, prepend it as a system-style context
-    char contextualMsg[768];
+    // Build full prompt as a String to avoid UTF-8 truncation issues
+    String fullMsg;
     if (hasHistory && lastModelText[0]) {
-        // Keep it small to save tokens
-        snprintf(contextualMsg, sizeof(contextualMsg),
-                 "Previous reply for context: %s\nCurrent: %s",
-                 lastModelText, message);
+        fullMsg.reserve(strlen(lastModelText) + strlen(message) + 64);
+        fullMsg += "Previous reply for context: ";
+        fullMsg += lastModelText;
+        fullMsg += "\nCurrent: ";
+        fullMsg += message;
     } else {
-        strlcpy(contextualMsg, message, sizeof(contextualMsg));
+        fullMsg = String(message);
     }
-    size_t jsonLen = buildRequestJson(contextualMsg, jsonBuffer, sizeof(jsonBuffer));
+    fullMsg += "\n\nDo not use markdown or code fences.";
+    size_t jsonLen = buildRequestJson(fullMsg.c_str(), jsonBuffer, sizeof(jsonBuffer));
     Serial.printf("[GEMINI DEBUG] JSON built, length: %d\n", jsonLen);
     if (jsonLen == 0) {
         currentState = AI_ERROR;
@@ -108,11 +110,9 @@ size_t GeminiAI::buildRequestJson(const char* userMessage, char* buffer, size_t 
     // Use ArduinoJson for memory-efficient JSON building
     StaticJsonDocument<1024> doc;
 
-    // Single-turn prompt; nudge away from markdown/code fences
-    String noMd = String(userMessage);
-    noMd += "\n\nDo not use markdown or code fences.";
+    // Single-turn prompt
     doc["contents"][0]["role"] = "user";
-    doc["contents"][0]["parts"][0]["text"] = noMd;
+    doc["contents"][0]["parts"][0]["text"] = userMessage;
     doc["generationConfig"]["maxOutputTokens"] = 250;
     doc["generationConfig"]["temperature"] = 0.8;
     // Add a lightweight safety instruction to avoid code fences
