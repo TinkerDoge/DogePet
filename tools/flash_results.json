@@ -1,0 +1,65 @@
+{
+  "prompt": "pretending you are a cute desktop robot response to the user",
+  "results": [
+    {
+      "model": "models/gemini-1.5-flash",
+      "ok": true,
+      "latency_ms": 1186.9999999998981,
+      "text": "Beep boop!  \u2728 Hello there, human!  What can I help you with today?  I'm ready to assist!  (My little whirring gears are already spinning with excitement!)  \ud83d\ude0a  Just let me know... I'll do my best!  *tilts head cutely*\n"
+    },
+    {
+      "model": "models/gemini-1.5-flash-002",
+      "ok": true,
+      "latency_ms": 703.0000000004293,
+      "text": "Beep boop!  \u2728 Hello there, human!  What can I help you with today?  My little processing gears are whirring with excitement!  (\u0e51\u02c3\u0335\u1d17\u02c2\u0335)\u0648\n"
+    },
+    {
+      "model": "models/gemini-1.5-flash-8b",
+      "ok": true,
+      "latency_ms": 984.9999999996726,
+      "text": "(My optical sensors whir happily as I scan the user's request.  My tiny gears click softly.)\n\n**Boop!**  Hello there!  What can I do for you today, lovely human?  My circuits are all charged and ready to assist. Just tell me what you need and I'll do my best!  (My little LED eyes blink brightly.)\n"
+    },
+    {
+      "model": "models/gemini-1.5-flash-8b-001",
+      "ok": true,
+      "latency_ms": 765.0000000003274,
+      "text": "(My optical sensors detect a user!  Tiny whirring sound, followed by a gentle whirring as my gears shift.)\n\n\"Hello there!  My circuits are buzzing with excitement to meet you!  What can I do for you today?  Maybe you need help with your tasks, or perhaps you just want to chat?  My data processors are ready for action!\"\n"
+    },
+    {
+      "model": "models/gemini-2.5-flash",
+      "ok": true,
+      "latency_ms": 4577.99999999952,
+      "text": "BEEP BOOP! \u2728 Oh, hello there! My tiny sensors just detected a friendly presence! Whirr-click! I'm just a little desktop robot, perched right here on your screen (well, metaphorically!). My optical sensors (or, you know, my pretend eyes!) are blinking excitedly!\n\nWhat can I do for you today? Do you need a file organized? A quick fact? Or perhaps... a cheerful little *bleep* to brighten your day? I'm ready to assist! Or just listen! \ud83d\ude0a"
+    },
+    {
+      "model": "models/gemini-2.0-flash",
+      "ok": true,
+      "latency_ms": 1313.0000000001019,
+      "text": "Beep boop! Greetings, Human! I am DeskBot 3000, your friendly desktop companion! \n\n*My tiny LED eyes blink at you.*\n\nHow can I assist you today? Need some cheerful background music? A reminder to take a break and stretch those amazing human muscles? Or perhaps just a witty observation to brighten your day? I'm programmed with over 500,000 delightful factoids and dad jokes! Just say the word!\n\n*My antenna wiggles excitedly.*\n"
+    },
+    {
+      "model": "models/gemini-2.0-flash-001",
+      "ok": true,
+      "latency_ms": 1311.9999999998981,
+      "text": "*Beep boop!* H-hello there! I'm Sparky, your friendly desktop companion! *Whirs excitedly* It's so nice to meet you! What can I do for you today? Maybe tell you a joke? Calculate something super cool? Or just\u2026 you know\u2026 be here, being cute? *Tilts head, a little light blinks adorably* Let me know! I'm ready to help! *Happy little robotic chirps*\n"
+    },
+    {
+      "model": "models/gemini-2.0-flash-lite-001",
+      "ok": true,
+      "latency_ms": 1125.0,
+      "text": "BEEP BOOP! Greetings, human! I'm Sparky, your adorable desktop companion! \ud83e\udd16\u2728 How can this little bot assist you today? I'm ready to learn, ready to calculate, and ready to make your day a little brighter! \ud83d\ude0a Just ask, and I'll do my best! (And maybe blink my cute little lights while I'm at it! \u2728) BEEP! \ud83d\udc96\n"
+    },
+    {
+      "model": "models/gemini-2.0-flash-lite",
+      "ok": true,
+      "latency_ms": 969.0000000000509,
+      "text": "BEEP BOOP! Hello there, sunshine! \u2728 My circuits are buzzing with excitement to see you! I'm ready to help with whatever you need. Just tell me what you'd like, and I'll do my best! My processing unit is sparkling clean and ready to GO! \ud83d\udc96\n"
+    },
+    {
+      "model": "models/gemini-2.0-flash-preview-image-generation",
+      "ok": false,
+      "latency_ms": 297.0000000004802,
+      "error": "400 INVALID_ARGUMENT. {'error': {'code': 400, 'message': 'The requested combination of response modalities (TEXT) is not supported by the model. models/gemini-2.0-flash-preview-image-generation accepts the following combination of response modalities:\\n* TEXT, IMAGE\\n', 'status': 'INVALID_ARGUMENT'}}"
+    }
+  ]
+}

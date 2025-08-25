@@ -8,8 +8,8 @@
 #include "config.h"
 
 // Gemini API Configuration
-#define GEMINI_API_BASE_URL "https://generativelanguage.googleapis.com/v1beta/models/"
-#define GEMINI_API_ENDPOINT ":generateContent"
+#define GEMINI_API_BASE_URL "https://generativelanguage.googleapis.com/v1/models/"
+#define GEMINI_API_ENDPOINT ":generate"
 #define GEMINI_API_KEY_MAX_LEN 64
 #define GEMINI_MAX_RESPONSE_LEN 512
 #define GEMINI_REQUEST_TIMEOUT_MS 15000

@@ -20,20 +20,28 @@ namespace AICompanion {
     // Helper: strip markdown code fences (```...```) and inline backticks
     static String stripCodeFences(const String& in) {
         String s = in;
-        // Remove leading/trailing triple backtick blocks
+        // Unwrap or remove all triple-backtick fenced blocks, preserving inner content when present
         int start = s.indexOf("```");
-        if (start >= 0) {
-            int end = s.indexOf("```", start + 3);
-            if (end > start) {
-                // Skip optional language tag after opening ```
-                int contentStart = s.indexOf('\n', start + 3);
-                if (contentStart < 0) contentStart = start + 3;
-                String inner = s.substring(contentStart + 1, end);
-                s = inner;
+        while (start >= 0) {
+            int afterOpenNewline = s.indexOf('\n', start + 3);
+            int contentStart = (afterOpenNewline > start) ? afterOpenNewline + 1 : start + 3;
+            int end = s.indexOf("```", contentStart);
+            if (end < 0) {
+                // No closing fence: take remainder as inner content
+                String inner = s.substring(contentStart);
+                s = s.substring(0, start) + inner;
+                break;
+            } else {
+                String inner = s.substring(contentStart, end);
+                s = s.substring(0, start) + inner + s.substring(end + 3);
             }
+            // look for next fence
+            start = s.indexOf("```");
         }
-        // Remove any stray backticks
+
+        // Remove any remaining inline backticks and trim whitespace
         s.replace("`", "");
+        s.trim();
         return s;
     }
 
@@ -201,25 +209,49 @@ namespace AICompanion {
 
     // Extract value from JSON-like string (simple parser)
     String extractJsonValue(String json, String key) {
-        String searchKey = "\"" + key + "\":";
+        String searchKey = "\"" + key + "\"";
         int keyIndex = json.indexOf(searchKey);
-
         if (keyIndex == -1) return "";
 
-        int valueStart = json.indexOf("\"", keyIndex + searchKey.length());
-        if (valueStart == -1) return "";
+        int colon = json.indexOf(':', keyIndex + searchKey.length());
+        if (colon == -1) return "";
 
-        int valueEnd = json.indexOf("\"", valueStart + 1);
-        if (valueEnd == -1) return "";
+        // Skip whitespace after colon
+        int i = colon + 1;
+        while (i < json.length() && (json.charAt(i) == ' ' || json.charAt(i) == '\t' || json.charAt(i) == '\r' || json.charAt(i) == '\n')) i++;
+        if (i >= json.length()) return "";
 
-        String value = json.substring(valueStart + 1, valueEnd);
-
-        // Clean up the value (remove extra quotes, trim)
-        value.trim();
-        if (value.startsWith("\"") && value.endsWith("\"")) {
-            value = value.substring(1, value.length() - 1);
+        char c = json.charAt(i);
+        // Quoted string value
+        if (c == '"') {
+            int startQuote = i;
+            int endQuote = json.indexOf('"', startQuote + 1);
+            // handle simple escaped-quote skipping (best-effort)
+            while (endQuote > 0 && json.charAt(endQuote - 1) == '\\') {
+                endQuote = json.indexOf('"', endQuote + 1);
+            }
+            if (endQuote == -1) return "";
+            String value = json.substring(startQuote + 1, endQuote);
+            value.trim();
+            return value;
         }
 
+        // Unquoted token (number, boolean, or bare word) - read until comma or closing brace
+        int j = i;
+        while (j < json.length()) {
+            char ch = json.charAt(j);
+            if (ch == ',' || ch == '}' || ch == '\n' || ch == '\r') break;
+            j++;
+        }
+        String value = json.substring(i, j);
+        value.trim();
+        // Strip trailing commas/spaces
+        while (value.endsWith(",")) value = value.substring(0, value.length() - 1);
+        value.trim();
+        // Remove surrounding quotes if any
+        if (value.startsWith("\"") && value.endsWith("\"") && value.length() >= 2) {
+            value = value.substring(1, value.length() - 1);
+        }
         return value;
     }
 

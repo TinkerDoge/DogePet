@@ -110,14 +110,20 @@ size_t GeminiAI::buildRequestJson(const char* userMessage, char* buffer, size_t 
     // Use ArduinoJson for memory-efficient JSON building
     StaticJsonDocument<1024> doc;
 
-    // Single-turn prompt
-    doc["contents"][0]["role"] = "user";
-    doc["contents"][0]["parts"][0]["text"] = userMessage;
-    doc["generationConfig"]["maxOutputTokens"] = 250;
-    doc["generationConfig"]["temperature"] = 0.8;
-    // Add a lightweight safety instruction to avoid code fences
-    doc["safetySettings"][0]["category"] = "HARM_CATEGORY_HATE_SPEECH";
-    doc["safetySettings"][0]["threshold"] = "BLOCK_ONLY_HIGH";
+    // Build request following Generative Language API v1 generate schema.
+    // Use a simple text prompt and generation config.
+    JsonArray contents = doc.createNestedArray("contents");
+    JsonObject entry = contents.createNestedObject();
+    entry["role"] = "user";
+    JsonArray parts = entry.createNestedArray("parts");
+    JsonObject p = parts.createNestedObject();
+    p["text"] = userMessage;
+
+    JsonObject gen = doc.createNestedObject("generationConfig");
+    gen["maxOutputTokens"] = 250;
+    gen["temperature"] = 0.6;
+
+    // safetySettings removed by request (no safety constraints)
 
     // Nudge model away from markdown by appending a reminder
     // (kept minimal to respect token budget)
@@ -136,7 +142,8 @@ bool GeminiAI::makeHttpRequest(const char* jsonPayload, char* response, size_t m
     char path[GEMINI_MAX_URL_LEN];
     Serial.printf("[GEMINI DEBUG] Building path with model: %s, endpoint: %s, API key length: %d\n", 
                  GEMINI_MODEL, GEMINI_API_ENDPOINT, strlen(apiKey));
-    int pathLen = snprintf(path, sizeof(path), "/v1beta/models/%s%s?key=%s", GEMINI_MODEL, GEMINI_API_ENDPOINT, apiKey);
+    // Use v1 endpoint path
+    int pathLen = snprintf(path, sizeof(path), "/v1/models/%s%s?key=%s", GEMINI_MODEL, GEMINI_API_ENDPOINT, apiKey);
     Serial.printf("[GEMINI DEBUG] Path length: %d, buffer size: %d\n", pathLen, sizeof(path));
     Serial.printf("[GEMINI DEBUG] Constructed path: %s\n", path);
     
@@ -162,7 +169,7 @@ bool GeminiAI::makeHttpRequest(const char* jsonPayload, char* response, size_t m
     client.printf("Content-Type: application/json\r\n");
     client.printf("Content-Length: %d\r\n", strlen(jsonPayload));
     client.printf("Connection: close\r\n\r\n");
-    
+
     Serial.println("[GEMINI DEBUG] Sending JSON payload");
     client.print(jsonPayload);
     Serial.println("[GEMINI DEBUG] Request sent, waiting for response");
@@ -181,29 +188,11 @@ bool GeminiAI::makeHttpRequest(const char* jsonPayload, char* response, size_t m
 
     Serial.println("[GEMINI DEBUG] Response received, reading data");
 
-    // Read response
-    String responseString = "";
-    bool inBody = false;
-    int lineCount = 0;
-
+    // Read response fully into a buffer
+    String responseString;
     while (client.available()) {
-        String line = client.readStringUntil('\n');
-        lineCount++;
-        
-        // Log first few lines to see headers
-        if (lineCount <= 10) {
-            Serial.printf("[GEMINI DEBUG] Line %d: %s\n", lineCount, line.c_str());
-        }
-
-        if (line.startsWith("{")) {
-            inBody = true;
-            Serial.println("[GEMINI DEBUG] Found JSON start, beginning body parse");
-        }
-
-        if (inBody) {
-            responseString += line;
-            responseString += "\n";
-        }
+        responseString += client.readString();
+        delay(2);
     }
 
     client.stop();
@@ -215,15 +204,21 @@ bool GeminiAI::makeHttpRequest(const char* jsonPayload, char* response, size_t m
         return false;
     }
 
-    Serial.printf("[GEMINI DEBUG] Raw response: %s\n", responseString.c_str());
+    // Try to locate JSON body: find first '{'
+    int idx = responseString.indexOf('{');
+    if (idx >= 0) {
+        String body = responseString.substring(idx);
+        Serial.printf("[GEMINI DEBUG] Raw response body: %s\n", body.c_str());
+        return extractResponseText(body.c_str(), response, maxResponseLen);
+    }
 
-    // Parse JSON response
-    Serial.println("[GEMINI DEBUG] Parsing JSON response");
-    return extractResponseText(responseString.c_str(), response, maxResponseLen);
+    strcpy(lastError, "No JSON body found");
+    Serial.println("[GEMINI DEBUG] No JSON body found in response");
+    return false;
 }
 
 bool GeminiAI::extractResponseText(const char* jsonResponse, char* output, size_t maxOutputLen) {
-    StaticJsonDocument<2048> doc;
+    StaticJsonDocument<4096> doc;
 
     DeserializationError error = deserializeJson(doc, jsonResponse);
     if (error) {
@@ -238,12 +233,28 @@ bool GeminiAI::extractResponseText(const char* jsonResponse, char* output, size_
         return false;
     }
 
-    // Extract response text
+    // Several possible response shapes:
+    // 1) outputs[0].content[0].text
+    // 2) candidates[0].output
+    // 3) text field directly
     const char* responseText = nullptr;
 
-    // Try different response formats
-    if (doc["candidates"][0]["content"]["parts"][0]["text"]) {
-        responseText = doc["candidates"][0]["content"]["parts"][0]["text"];
+    if (doc.containsKey("outputs") && doc["outputs"].size() > 0) {
+        // outputs is an array; look for content/text
+        if (doc["outputs"][0].containsKey("content") && doc["outputs"][0]["content"].size() > 0) {
+            responseText = doc["outputs"][0]["content"][0]["text"] | nullptr;
+        }
+        if (!responseText && doc["outputs"][0].containsKey("text")) {
+            responseText = doc["outputs"][0]["text"] | nullptr;
+        }
+    }
+
+    if (!responseText && doc.containsKey("candidates") && doc["candidates"].size() > 0) {
+        responseText = doc["candidates"][0]["output"] | nullptr;
+    }
+
+    if (!responseText && doc.containsKey("text")) {
+        responseText = doc["text"] | nullptr;
     }
 
     if (!responseText) {
