@@ -129,7 +129,7 @@ static constexpr bool      DEFAULT_JIGGLING         = true;
 static constexpr bool      ENABLE_GEMINI_AI         = true;  // Enable AI features
 // Debug logging for AI (set to true to see detailed logs)
 static constexpr bool      ENABLE_AI_DEBUG_LOGS     = false;
-static constexpr const char* GEMINI_API_KEY         = "AIzaSyBUI39g_byb1KUm_iNkvQF4y86mxCV8A28";    // Set your API key here
+static constexpr const char* GEMINI_API_KEY         = "APIKEY";    // Set your API key here
 static constexpr const char* GEMINI_MODEL           = "gemini-2.0-flash";    // AI model to use
 //static constexpr const char* GEMINI_MODEL           = "gemini-2.5-flash";    // AI model to use
 
@@ -142,8 +142,8 @@ static constexpr uint32_t  AI_CHATTER_INTERVAL_MS   = 30000; // 30 seconds betwe
 
 // === WiFi Configuration ===
 static constexpr bool      ENABLE_WIFI              = true;  // Enable WiFi for AI features
-static constexpr const char* WIFI_SSID              = "NOVA";    // Set your WiFi network name
-static constexpr const char* WIFI_PASSWORD          = "22122024";    // Set your WiFi password
+static constexpr const char* WIFI_SSID              = "SSID";    // Set your WiFi network name
+static constexpr const char* WIFI_PASSWORD          = "PASSWORD";    // Set your WiFi password
 static constexpr uint32_t  WIFI_CONNECT_TIMEOUT_MS = 30000; // WiFi connection timeout
 
 

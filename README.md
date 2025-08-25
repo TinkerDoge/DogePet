@@ -1,124 +1,114 @@
-🐾 PetBot v0.1
+## DogePet — ESP32-S3 Pocket Companion
 
-A small ESP32-S3 based companion bot with animated eyes, notifications, and motion-reactive emotions.
-Designed to be lively, expressive, and extendable with sensors & peripherals.
+A small, lively ESP32-S3–based companion bot with animated RoboEyes, BLE notifications, motion-reactive emotions, and optional Gemini AI integration.
 
-⚡ Hardware Overview
+## Quick highlights
+- MCU: ESP32-S3 Super Mini (tiny, low-power)
+- Display: 128×64 SH1106 OLED (I²C)
+- Eyes: RoboEyes animations (blink, look, moods)
+- Motion sensing: MPU6050 (accelerometer + gyro)
+- Single WS2812 status LED
+- BLE + optional WiFi + Gemini AI support
 
-MCU: ESP32-S3 Super Mini 
-https://www.espboards.dev/esp32/esp32-s3-super-mini/
+## Features
+- Expressive eye animations (idle, blink, gaze, emotions)
+- Touch & button controls to switch modes and toggle BLE/WiFi
+- Notification display (BLE notifications shown on the OLED)
+- Motion-reactive behaviours (tilt = curious, shake = angry, etc.)
+- Optional Gemini AI integration for chat-style replies and background "chatter" when WiFi is enabled
 
-Ultra-small size: 22.52 x 18 mm
-Ultra-low power consumption: deep sleep power consumption of about 43μA
-Onboard WS2812 RGB LED for programmable multi-color status indication
-Dual-core Xtensa LX7 CPU running at up to 240 MHz
-512 KB SRAM, 384 KB ROM built-in, with 4 MB Flash
-Secure encryption features: AES-128/256, RSA, HMAC, digital signatures, and secure startup
-11 digital IO pins
-22 external interrupt pins
-6 analog input pins
-11 PWM pins
+## Project structure (important files)
+- `DogePet.ino` — main Arduino sketch
+- `config.h` — central project configuration (WiFi, Gemini, feature toggles)
+- `gemini_ai.*` — Gemini AI client and helpers
+- `ai_companion.*`, `animation_engine.*`, `motion.*`, `mpu6050.*` — core systems
+- `assets/`, `fonts/`, `include/`, `libraries/` — resources and libs
 
-Display: 128×64 OLED (SH1106, I²C)
+## Gemini AI (optional)
+When enabled, DogePet can send short messages to Google's Gemini API and receive compact, structured responses used to drive animations, toast messages, and sound effects.
 
-Eyes: RoboEyes library renders animated eyes (blinks, idle wander, moods)
+Enable in `config.h`:
 
-Touch: TPS223 capacitive touch module (digital HIGH when touched) → switches modes
+```cpp
+// === Gemini AI Configuration ===
+static constexpr bool      ENABLE_GEMINI_AI         = true;  // Enable AI features
+static constexpr const char* GEMINI_API_KEY         = "your_api_key_here";    // Set your API key here
+static constexpr const char* GEMINI_MODEL           = "gemini-1.5-flash";    // AI model to use
+static constexpr uint32_t  GEMINI_COOLDOWN_MS      = 30030; // Minimum time between AI requests
+```
 
-Button: FUNC_BTN (active-LOW) → hold 2s to toggle BLE
+Notes:
+- Use a short system prompt (see `gemini_ai.h`) to keep responses brief (< 100 chars) for the small OLED
+- AI responses are parsed into structured commands (animation, sound effects, toast_message, thought)
+- The bot includes rate limiting and background chatter mode (configurable)
 
-Status LED: WS2812 (NeoPixel, single pixel) → shows BLE state / mood cues
+## Configuration summary (what to set)
+- `ENABLE_WIFI` — required for Gemini AI and background chatter
+- `WIFI_SSID`, `WIFI_PASSWORD` — your 2.4GHz network credentials
+- `GEMINI_API_KEY` — API key from Google AI Studio
+- `GEMINI_MODEL` — pick a model (e.g., `"gemini-1.5-flash"`)
 
-Audio (planned): I²S DAC/Amp (MAX98357A) for sound playback
+Example WiFi config in `config.h`:
+```cpp
+static constexpr bool      ENABLE_WIFI              = true;
+static constexpr const char* WIFI_SSID              = "your_wifi_network";
+static constexpr const char* WIFI_PASSWORD          = "your_wifi_password";
+static constexpr uint32_t  WIFI_CONNECT_TIMEOUT_MS = 30000;
+```
 
-Motion Sensor: MPU6050 (I²C) → accelerometer + gyroscope
+## Controls & UX
+- Touch sensor (TPS223): cycle faces/modes
+- FUNC_BTN (active-LOW): short press = action, hold 2s = toggle BLE; double-press = toggle WiFi
+- WS2812 LED: shows BLE/WiFi/mood status
 
-Used for tilt/gesture detection, mood reactions (happy/angry/blink/jiggle).
+Faces / Modes
+- Eyes (default): RoboEyes animated, idle wander, blink
+- Clock: time/date from BLE ChronosESP32 or local RTC
+- Notifications: show last BLE notification with badge for unread
 
-🎛 Faces / Modes
+## Wiring (summary)
+- OLED SDA/SCL -> pins 9 / 8 (I²C, SH1106 @ 0x3C)
+- TPS223 touch -> pin 13 (HIGH on touch)
+- FUNC_BTN -> pin 1 (active-LOW)
+- WS2812 -> pin 48 (single NeoPixel, 5V with 330Ω inline)
+- MPU6050 -> shared I²C (pins 9 / 8)
+- I²S DAC (planned) -> BCLK=11, LRC=10, DIN=12
 
-Touch sensor cycles between faces:
+## Required libraries
+- FluxGarage_RoboEyes
+- Adafruit_GFX + Adafruit_SH110X
+- Adafruit_NeoPixel
+- ChronosESP32
 
-Eyes (default)
+Install these through the Arduino Library Manager or add them to your project's `libraries/` folder.
 
-RoboEyes animated, blinking, idle wander
+## Setup & Flashing
+1. Configure `config.h` (WiFi, Gemini, feature toggles).
+2. Open `DogePet.ino` in Arduino IDE (select ESP32-S3 board package).
+3. Build & upload.
+4. On first boot the MPU6050 auto-calibrates — keep the device flat & still.
 
-Reacts to tilt (curious), shakes (angry), taps (blink), random jiggle
+## Troubleshooting
+- "AI Init Failed" — verify `GEMINI_API_KEY`, model name, and WiFi connectivity.
+- "WiFi Failed" — check SSID/password and that the network is 2.4GHz.
+- No AI response — ensure message format (BLE messages prefixed with `AI:`, `@doge`, or `DogePet:`) and respect cooldown.
+- Eyes or audio not working — check RoboEyes init and audio wiring/config.
 
-Clock
+## Advanced / Developer notes
+- Response formatting: `gemini_ai` returns compact JSON-like responses the firmware parses into animation + sound + toast commands.
+- To change reply style or length, edit the system prompt in `gemini_ai.h`.
+- Background AI chatter can be toggled and temporally spaced to avoid API usage spikes.
 
-Shows time/date from BLE (Chronos) or local RTC
+## Privacy & Safety
+- API keys and WiFi credentials are stored locally on the device in `config.h`. Keep them secure.
+- Communications to Gemini are over HTTPS.
+- The firmware does not persist conversation history by default.
 
-Status bar: BLE state + notif badge
+## Roadmap
+- Add audio feedback via MAX98357A (I²S) for sounds/voice
+- More expressive face animations (surprised, sleepy)
+- Conversation memory / personalized personality
+- Desktop configuration app
 
-Bottom dock: icons for Eyes / Clock / Notif
-
-Notifications
-
-Shows last BLE-received notification (title + snippet)
-
-Badge in top bar when unread
-
-📡 Connectivity
-
-BLE via ChronosESP32
-
-Syncs time & phone notifications
-
-Toggle on/off with FUNC_BTN hold (2s)
-
-Status LED behavior:
-
-🔵 Blue = BLE enabled
-
-⚫ Off = BLE disabled
-
-🤖 Emotions & Liveliness
-
-Happy: gentle tilt detected
-
-Angry: moderate shake detected
-
-Furious: very intense/continued shaking detected (angry eyes + intense jiggle)
-
-Blink: on tap/bump or random (but NOT when angry or furious)
-      Includes smart cooldown system to prevent continuous blinking during rapid movements
-
-Micro-jiggle: subtle flicker motion at random intervals
-
-Note: auto-sleep/tired mode currently disabled (always awake & curious).
-REMOVED: "Follow gravity" directional nudges - bot now only reacts to direct user interactions.
-
-🔌 Wiring
-Peripheral	ESP32-S3 Pin	Notes
-OLED (SDA/SCL)	9 / 8	SH1106, 128×64, I²C addr 0x3C
-Touch (TPS223)	13	HIGH on touch, used for face switching
-FUNC_BTN	1	Active-LOW, hold 2s → BLE toggle
-WS2812 LED	48	Single NeoPixel, 5V power, 330Ω inline
-MPU6050 (I²C)	9 / 8	Same I²C bus as OLED
-I²S DAC/Amp	(planned)	BCLK=11, LRC=10, DIN=12
-🔧 Setup
-
-Flash using Arduino IDE (ESP32 board package + libraries below).
-
-Required Libraries:
-
-FluxGarage_RoboEyes
-
-Adafruit_GFX + Adafruit_SH110X
-
-Adafruit_NeoPixel
-
-ChronosESP32
-
-On first boot, MPU6050 is auto-calibrated (keep device flat & still).
-
-📜 Roadmap / Ideas
-
-Audio feedback with MAX98357A (blips, chirps, voices).
-
-More expressive moods (sleepy, surprised).
-
-Custom animations (wink, happy dance).
-
-Desktop companion app for configuration.
+## License
+See `LICENSE` in the project root.
