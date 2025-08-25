@@ -137,13 +137,14 @@ bool GeminiAI::makeHttpRequest(const char* jsonPayload, char* response, size_t m
     Serial.println("[GEMINI DEBUG] Creating WiFiClientSecure");
     WiFiClientSecure client;
     client.setInsecure(); // For testing - use proper certificates in production
+    client.setTimeout(15000); // 15s read timeout
 
     // Build the path part only (without https://hostname)
     char path[GEMINI_MAX_URL_LEN];
     Serial.printf("[GEMINI DEBUG] Building path with model: %s, endpoint: %s, API key length: %d\n", 
                  GEMINI_MODEL, GEMINI_API_ENDPOINT, strlen(apiKey));
-    // Use v1 endpoint path
-    int pathLen = snprintf(path, sizeof(path), "/v1/models/%s%s?key=%s", GEMINI_MODEL, GEMINI_API_ENDPOINT, apiKey);
+    // Prefer v1beta endpoint path for broader model support
+    int pathLen = snprintf(path, sizeof(path), "/v1beta/models/%s%s?key=%s", GEMINI_MODEL, GEMINI_API_ENDPOINT, apiKey);
     Serial.printf("[GEMINI DEBUG] Path length: %d, buffer size: %d\n", pathLen, sizeof(path));
     Serial.printf("[GEMINI DEBUG] Constructed path: %s\n", path);
     
@@ -188,12 +189,24 @@ bool GeminiAI::makeHttpRequest(const char* jsonPayload, char* response, size_t m
 
     Serial.println("[GEMINI DEBUG] Response received, reading data");
 
-    // Read response fully into a buffer
+    // Read response fully (guard against closed socket)
     String responseString;
-    while (client.available()) {
-        responseString += client.readString();
-        delay(2);
+    uint32_t readStart = millis();
+    while (client.connected() || client.available()) {
+        if (client.available()) {
+            char buf[512];
+            int n = client.read((uint8_t*)buf, sizeof(buf) - 1);
+            if (n > 0) {
+                buf[n] = '\0';
+                responseString += buf;
+                readStart = millis();
+            }
+        } else {
+            if (millis() - readStart > GEMINI_REQUEST_TIMEOUT_MS) break;
+            delay(10);
+        }
     }
+    client.stop();
 
     client.stop();
     Serial.printf("[GEMINI DEBUG] Response length: %d\n", responseString.length());
@@ -234,12 +247,19 @@ bool GeminiAI::extractResponseText(const char* jsonResponse, char* output, size_
     }
 
     // Several possible response shapes:
-    // 1) outputs[0].content[0].text
-    // 2) candidates[0].output
-    // 3) text field directly
+    // 1) candidates[0].content.parts[0].text (v1beta)
+    // 2) outputs[0].content[0].text (some v1 variants)
+    // 3) outputs[0].text
+    // 4) candidates[0].output
+    // 5) text field directly
     const char* responseText = nullptr;
 
-    if (doc.containsKey("outputs") && doc["outputs"].size() > 0) {
+    // Preferred v1beta structure
+    if (doc["candidates"][0]["content"]["parts"][0]["text"]) {
+        responseText = doc["candidates"][0]["content"]["parts"][0]["text"];
+    }
+
+    if (!responseText && doc.containsKey("outputs") && doc["outputs"].size() > 0) {
         // outputs is an array; look for content/text
         if (doc["outputs"][0].containsKey("content") && doc["outputs"][0]["content"].size() > 0) {
             responseText = doc["outputs"][0]["content"][0]["text"] | nullptr;

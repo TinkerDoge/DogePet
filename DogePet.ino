@@ -720,20 +720,11 @@ inline void checkMicrophoneNoise() {
     if (currentMs - lastNoiseReactionMs >= MIC_COOLDOWN_MS) {
       Serial.printf("Loud noise detected! Level: %.2f\n", micLevel);
 
-      // If Gemini AI is connected, send voice detection to AI
+      // If Gemini AI is connected, send voice trigger marker only (let AI module craft the prompt)
       if (ENABLE_GEMINI_AI && wifiEnabled && DogeAI.isEnabled() && DogeAI.isReady()) {
-        // Different AI prompts based on consecutive noise detections
-        if (consecutiveNoiseCount >= 3) {
-          // Multiple loud noises - annoyed reaction
-          Serial.println("[MIC DEBUG] Sending annoyed voice reaction to AI");
-          String aiPrompt = "[VOICE_TRIGGER] I detected multiple loud noises around me. I'm getting a bit annoyed by all this noise. How should I react?";
-          AICompanion::handleMessage(aiPrompt.c_str());
-        } else {
-          // Single loud noise - curious reaction
-          Serial.println("[MIC DEBUG] Sending curious voice reaction to AI");
-          String aiPrompt = "[VOICE_TRIGGER] I just heard a loud noise nearby! I'm curious about what made that sound. How should I respond?";
-          AICompanion::handleMessage(aiPrompt.c_str());
-        }
+        Serial.println("[MIC DEBUG] Voice trigger -> AI (marker only)");
+        const char* aiMarker = "[VOICE_TRIGGER]";
+        AICompanion::handleMessage(aiMarker);
       } else {
         // Fallback to original behavior when AI not available
         if (consecutiveNoiseCount >= 3) {
