@@ -388,7 +388,7 @@ namespace AICompanion {
         if (isVoiceTrigger) {
             wrapped.reserve(512);
             wrapped += GEMINI_SYSTEM_PROMPT;
-            wrapped += "\n\nThe user is calling to you (not a noise).\n";
+            wrapped += "\n\nThe user is calling to you.\n";
             wrapped += "Reply with ONE short, cute random thought as PLAIN TEXT only.\n";
             wrapped += "Constraints: <= 160 chars, include one emoji, no markdown, no quotes, no code.\n\n";
             // Strip tag from user content (keep for context if present)
