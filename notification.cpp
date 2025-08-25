@@ -102,7 +102,7 @@ void drawToastIfAny(Adafruit_SH1106G& display) {
     } else {
       // Fixed top banner area (full width) to avoid re-centering jitter
       const int by = 0;               // top row
-      const int bh = 14;              // banner height
+      const int bh = 20;              // banner height (increased from 14 to 20 for 2 rows)
       const int bx = 0;               // full width
       const int bw = SCREEN_W;
 

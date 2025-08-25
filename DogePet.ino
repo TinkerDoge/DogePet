@@ -40,7 +40,6 @@ typedef short int16_t;
 #include "config.h"
 #include "clock.h"
 #include "notification.h"
-#include "gemini_ai.h"
 #include "ai_companion.h"
 
 
@@ -52,8 +51,8 @@ enum FaceMode : uint8_t;
 enum MoodState : uint8_t;
 // === Toast overlay (non-blocking notifications) ===
 // Fixed-size buffers for lightweight typewriter/scatter overlay
-char  toastText[200];      // visible portion (typewriter)
-char  toastFullText[250];  // full text to be displayed
+char  toastText[500];      // visible portion (typewriter)
+char  toastFullText[500];  // full text to be displayed
 uint32_t toastUntil = 0;
 bool toastVisible = false; // Track if toast is currently visible to reduce flicker
 uint32_t lastToastDrawMs = 0; // Prevent too frequent toast updates
@@ -507,7 +506,7 @@ void updateBleToggleUI() {
           showToast("WiFi Connected! 📶", 2000);
 
           // Re-initialize AI if WiFi is now available
-          if (DogeAI.begin(GEMINI_API_KEY)) {
+          if (AICompanion::begin(GEMINI_API_KEY)) {
             Serial.println("Gemini AI enabled - Send messages with 'AI:', '@doge', or 'DogePet:' prefix");
             showToast("AI Ready! 🤖✨", 2000);
           }
@@ -721,7 +720,7 @@ inline void checkMicrophoneNoise() {
       Serial.printf("Loud noise detected! Level: %.2f\n", micLevel);
 
       // If Gemini AI is connected, send voice trigger marker only (let AI module craft the prompt)
-      if (ENABLE_GEMINI_AI && wifiEnabled && DogeAI.isEnabled() && DogeAI.isReady()) {
+      if (ENABLE_GEMINI_AI && wifiEnabled && AICompanion::isEnabled() && AICompanion::isReady()) {
         Serial.println("[MIC DEBUG] Voice trigger -> AI (marker only)");
         const char* aiMarker = "[VOICE_TRIGGER]";
         AICompanion::handleMessage(aiMarker);
@@ -788,12 +787,6 @@ void drawModeDock(FaceMode m) {
   int ux = (m==FACE_EYES) ? (x1-3) : (m==FACE_CLOCK ? (x2-3) : (x3-3));
   display.fillRect(ux, y+14, uW, 2, SH110X_WHITE);
 }
-
-// drawToastIfAny() function moved to notification.cpp
-
-// drawClock() function moved to clock.cpp
-
-// drawNotif() function moved to notification.cpp
 
 // =============================================================================
 // ARDUINO MAIN FUNCTIONS
@@ -959,15 +952,15 @@ void setup() {
                WiFi.status());
   
   if (ENABLE_GEMINI_AI && GEMINI_API_KEY && strlen(GEMINI_API_KEY) > 0) {
-    if (WiFi.status() == WL_CONNECTED) {
-      Serial.println("[SETUP DEBUG] WiFi connected, initializing AI");
-      if (DogeAI.begin(GEMINI_API_KEY)) {
+          if (WiFi.status() == WL_CONNECTED) {
+        Serial.println("[SETUP DEBUG] WiFi connected, initializing AI");
+        if (AICompanion::begin(GEMINI_API_KEY)) {
         Serial.println("[SETUP DEBUG] Gemini AI initialized successfully");
         Serial.println("Gemini AI enabled - Send messages with 'AI:', '@doge', or 'DogePet:' prefix");
         Serial.println("[SETUP DEBUG] You can also send 'AI: test' via BLE to test manually");
         showToast("AI Ready! 🤖", 2000);
       } else {
-        Serial.printf("[SETUP DEBUG] Failed to initialize Gemini AI: %s\n", DogeAI.getLastError());
+        Serial.printf("[SETUP DEBUG] Failed to initialize Gemini AI: %s\n", AICompanion::getLastError());
         showToast("AI Init Failed", 2000);
       }
     } else {
@@ -999,7 +992,7 @@ void loop() {
 
   // Background AI chatter
   static uint32_t lastDebugMs = 0;
-  if (currentMs - lastDebugMs > 10000) { // Debug every 10 seconds
+  if (currentMs - lastDebugMs > 30000) { // Debug every 30 seconds
     Serial.printf("[MAIN DEBUG] Loop running, WiFi enabled: %s, currentMs: %lu\n", 
                  wifiEnabled ? "true" : "false", currentMs);
     lastDebugMs = currentMs;
@@ -1099,9 +1092,11 @@ void loop() {
         if (((esp_random() & maskByLvl[lvl]) == 0) &&
             !Audio::isSequencePlaying() &&
             (now - lastChatterMs > cooldownByLvl[lvl])) {
-          Audio::playCuteChatterFree(450, 1300, 0);
-          // Show binary communication when chattering
-          if (ENABLE_BINARY_CHATTER) {
+          if (ENABLE_IDLE_AUDIO_CHATTER && (!ENABLE_GEMINI_AI || !AICompanion::isEnabled() || !AICompanion::isReady())) {
+            Audio::playCuteChatterFree(450, 1300, 0);
+          }
+          // Show binary communication when chattering (only if AI is not available)
+          if (ENABLE_BINARY_CHATTER && (!ENABLE_GEMINI_AI || !AICompanion::isEnabled() || !AICompanion::isReady())) {
             showBinaryChatter();
           }
           lastChatterMs = now;
@@ -1112,7 +1107,7 @@ void loop() {
         // Disable eyes auto-flush and reserve a HUD band for toast
         gEyesAutoFlush = false;
         const int DOCK_H = 16;
-        const int TOAST_H = 18;
+        const int TOAST_H = 24;  // Increased from 18 to 24 for 2 rows
         const int TOAST_Y = SCREEN_H - DOCK_H - TOAST_H;
         gEyesViewportYMax = TOAST_Y; // eyes draw only above toast band
 
@@ -1206,7 +1201,7 @@ void loop() {
     vbatPercent = voltsToPercent(vbatVolts);
     lastVbatReadMs = currentMs;
     lastVbatLogMs = lastVbatReadMs;
-    Serial.printf("VBAT: %.2f V (%d%%)%s\n", vbatVolts, vbatPercent, batteryCharging?" [charging]":"");
+    //Serial.printf("VBAT: %.2f V (%d%%)%s\n", vbatVolts, vbatPercent, batteryCharging?" [charging]":"");
   }
 
 }

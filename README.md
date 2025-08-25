@@ -33,9 +33,16 @@ Enable in `config.h`:
 // === Gemini AI Configuration ===
 static constexpr bool      ENABLE_GEMINI_AI         = true;  // Enable AI features
 static constexpr const char* GEMINI_API_KEY         = "your_api_key_here";    // Set your API key here
-static constexpr const char* GEMINI_MODEL           = "gemini-1.5-flash";    // AI model to use
-static constexpr uint32_t  GEMINI_COOLDOWN_MS      = 30030; // Minimum time between AI requests
+static constexpr const char* GEMINI_MODEL           = "gemini-2.5-flash";    // AI model to use (updated for 2.5 Flash)
+static constexpr uint32_t  GEMINI_COOLDOWN_MS      = 45000; // Longer cooldown for token efficiency
 ```
+
+### Token Efficiency Optimizations
+- **Shortened prompts**: System prompts reduced from ~300 chars to ~120 chars
+- **Compact state info**: Robot state condensed using single-character codes (N/H/A/F/T for moods)
+- **Reduced response limits**: Max tokens reduced from 250 to 150
+- **Increased cooldowns**: Background chatter interval increased from 30s to 60s
+- **Usage tracking**: Added request/error counting for monitoring API usage
 
 Notes:
 - Use a short system prompt (see `gemini_ai.h`) to keep responses brief (< 100 chars) for the small OLED

@@ -3,6 +3,9 @@
 #include "config.h"  // Include configuration constants
 #include "audio.h"
 #include <driver/i2s.h>
+#include <math.h>
+#include <algorithm>
+#include <esp_system.h>
 
 namespace Audio {
 
@@ -57,7 +60,7 @@ namespace Audio {
   static uint32_t lastAudioPlaybackMs = 0;
 
   // Microphone gain for sensitivity boost
-  static constexpr float MIC_GAIN = 64.0f; // Amplify microphone signal by 64x
+  static constexpr float MIC_GAIN = 80.0f; // Amplify microphone signal by 80x
 
   // Forward declaration for audio playback tracking
   static void updateAudioPlaybackState();
@@ -133,7 +136,7 @@ namespace Audio {
 
         // Debug: Show raw samples occasionally
         static uint32_t lastSampleDebug = 0;
-        if (currentMs - lastSampleDebug > 5000) { // Every 5 seconds
+        if (currentMs - lastSampleDebug > 30000) { // Every 30 seconds
           Serial.printf("Raw sample[0]: %d, Bytes read: %d, Samples: %d\n",
                        micBuffer[0], bytesRead, samplesRead);
           lastSampleDebug = currentMs;
@@ -892,6 +895,46 @@ void binaryTalkRandom(uint16_t minTotalMs, uint16_t maxTotalMs, uint16_t startDe
   }
 
   startSequence(ev, n, startDelayMs);
+}
+
+// ===== Procedural SFX sequence parser =====
+namespace Audio {
+static uint8_t waveFromChar(char c){
+  switch (c) {
+    case 'S': case 's': return WAVE_SINE;
+    case 'Q': case 'q': return WAVE_SQUARE;
+    case 'N': case 'n': return WAVE_NOISE;
+    default: return WAVE_SINE;
+  }
+}
+
+void playSfxSequence(const char* spec){
+  if (!spec) return;
+  const char* s = strstr(spec, ":");
+  if (s) s++; else s = spec;
+  while (*s){
+    while (*s==' '||*s=='\t'||*s==';') s++;
+    if (!*s) break;
+    float f0=0, f1=0; unsigned ms=0; char w='S'; unsigned vol=180;
+    const char* p = s;
+    f0 = strtof(p, (char**)&p);
+    if (*p=='>'){ p++; f1 = strtof(p,(char**)&p);} else { f1 = f0; }
+    if (*p==',') p++;
+    ms = (unsigned)strtoul(p, (char**)&p, 10);
+    if (*p==',') p++;
+    if (*p){ w = *p; p++; }
+    if (*p==',') p++;
+    vol = (unsigned)strtoul(p, (char**)&p, 10);
+
+    if (ms > 2000) ms = 2000;
+    if (vol > 255) vol = 255;
+    uint8_t wave = waveFromChar(w);
+    playBeep(f0, (uint16_t)ms, (uint8_t)vol, wave);
+    delay(6);
+    s = strchr(p, ';');
+    if (!s) break; else s++;
+  }
+}
 }
 }
 

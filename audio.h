@@ -96,6 +96,16 @@ namespace Audio {
   void playCuteStartup(uint16_t startDelayMs=0);
   void playCuteFurious(uint16_t startDelayMs=0);
   
+  // Parse and play a compact procedural SFX sequence produced by AI.
+  // Format (tokens separated by ';'):
+  //   f0>f1,ms,wave,vol
+  //   - f0,f1 in Hz (if no '>' then no glide)
+  //   - ms in milliseconds
+  //   - wave: S (sine), Q (square), N (noise)
+  //   - vol: 0..255
+  // Example: "SFX: 880>660,150,Q,200; 440,120,S,160"
+  void playSfxSequence(const char* spec);
+  
 }
 
 

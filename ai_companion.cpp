@@ -1,10 +1,13 @@
 // AI Companion Module - Implementation
-// Handles AI interaction, background chatter, and structured response processing
+// Consolidated AI module handling all AI interaction, background chatter, and API communication
+#include <Arduino.h>
 #include "ai_companion.h"
-#include "gemini_ai.h"
 #include "animation_engine.h"
+#include "audio.h"
 #include "motion.h"
 #include <ChronosESP32.h>
+#include <WiFiClientSecure.h>
+#include <ArduinoJson.h>
 #include <string.h>
 
 // Ensure stdint types are available
@@ -16,7 +19,31 @@ typedef unsigned long uint32_t;
 extern ChronosESP32 chrono;
 extern MoodState curMood;
 
+// Internal state variables
 namespace AICompanion {
+    // API key storage
+    char apiKey[GEMINI_API_KEY_MAX_LEN] = {0};
+
+    // State tracking
+    AIState currentState = AI_IDLE;
+    char lastError[64] = {0};
+
+    // Minimal chat history (previous model reply)
+    bool hasHistory = false;
+    char lastModelText[GEMINI_MAX_RESPONSE_LEN] = {0};
+
+    // Usage tracking for token monitoring
+    uint32_t requestCount = 0;
+    uint32_t errorCount = 0;
+
+    // AI timing management
+    uint32_t lastAISendMs = 0;
+    uint32_t lastAIChatterMs = 0;
+    char aiResponse[1024] = {0};
+
+    // Missing variable declarations
+    bool enabled = false;
+
     // Helper: strip markdown code fences (```...```) and inline backticks
     static String stripCodeFences(const String& in) {
         String s = in;
@@ -48,113 +75,472 @@ namespace AICompanion {
     // Helper: generate a short random cute thought
     static String generateRandomThought() {
         static const char* THOUGHTS[] = {
-            "I'm here and listening! 😊",
-            "What's up? 👀",
-            "Hi! Need me? 🤖✨",
-            "Ready when you are! 🌟",
-            "Thinking... but happy to chat! 🤔😊",
-            "Ping received! 💡",
-            "At your service! 🛠️",
-            "I like being called! 😄",
-            "Curious mode: ON! 🧠✨",
-            "Let's do this! 🚀"
+            "I'm here and listening! ????",
+            "What's up? ????",
+            "Hi! Need me? ???????",
+            "Ready when you are! ????",
+            "Thinking... but happy to chat! ????????",
+            "Ping received! ????",
+            "At your service! ???????",
+            "I like being called! ????",
+            "Curious mode: ON! ???????",
+            "Let's do this! ????"
         };
         int n = (int)(sizeof(THOUGHTS)/sizeof(THOUGHTS[0]));
-        return String(THOUGHTS[random(0, n)]);
+        return String(THOUGHTS[random(n)]);
     }
-    // AI state variables
-    uint32_t lastAISendMs = 0;
-    uint32_t lastAIChatterMs = 0;
-    char aiResponse[256];
+
+    // Helper: sanitize any model text for toast display
+    static String sanitizeDisplayText(const String& input) {
+        String s = stripCodeFences(input);
+        // Remove bracket tags and common meta markers
+        s.replace("[THINKING]", "");
+        s.replace("[VOICE_TRIGGER]", "");
+        // Remove lines that are not user-facing (SFX/spec/prompts/system/history)
+        String out; out.reserve(s.length());
+        int start = 0;
+        while (start < (int)s.length()) {
+            int nl = s.indexOf('\n', start);
+            if (nl < 0) nl = s.length();
+            String line = s.substring(start, nl);
+            String ltrim = line; ltrim.trim();
+            bool drop = false;
+            if (ltrim.startsWith("SFX:") || ltrim.startsWith("sfx:")) drop = true;
+            if (ltrim.startsWith("System:") || ltrim.startsWith("Instruction:")) drop = true;
+            if (ltrim.startsWith("Inner thought") || ltrim.startsWith("Thought:")) drop = true;
+            if (ltrim.startsWith("Previous reply for context:")) drop = true;
+            if (ltrim.startsWith("DogePet:")) {
+                // Often echo of prompt; drop it
+                drop = true;
+            }
+            if (!drop) {
+                if (out.length() > 0) out += '\n';
+                out += line;
+            }
+            start = nl + 1;
+        }
+        out.trim();
+        return out;
+    }
+
+    // Minimal inline parser to play compact SFX sequences without linking against Audio helper
+    static float clampf(float v, float a, float b){ if (v<a) return a; if (v>b) return b; return v; }
+
+    static void playSfxSequenceInline(const char* spec) {
+        if (!spec) return;
+        const char* s = strstr(spec, ":");
+        if (s) s++; else s = spec;
+        while (*s) {
+            while (*s==' '||*s=='\t'||*s==';') s++;
+            if (!*s) break;
+            float f0=0, f1=0; unsigned ms=0; char w='S'; float volf=180.0f;
+            const char* p = s;
+            f0 = strtof(p, (char**)&p);
+            if (*p=='>'){ p++; f1 = strtof(p,(char**)&p);} else { f1 = f0; }
+            if (*p==',') p++;
+            ms = (unsigned)strtoul(p, (char**)&p, 10);
+            if (*p==',') p++;
+            if (*p){ w = *p; p++; }
+            if (*p==',') p++;
+            // volume can be 0..1 float or 0..255 int
+            char* pend = nullptr;
+            float tryF = strtof(p, &pend);
+            if (pend && pend != p) {
+                if (tryF <= 1.0f) volf = clampf(tryF, 0.0f, 1.0f) * 255.0f; else volf = clampf(tryF, 0.0f, 255.0f);
+                p = pend;
+            } else {
+                unsigned voli = (unsigned)strtoul(p, (char**)&p, 10);
+                volf = (float)voli;
+            }
+            uint8_t wave = (w=='Q'||w=='q') ? Audio::WAVE_SQUARE : (w=='N'||w=='n') ? Audio::WAVE_NOISE : Audio::WAVE_SINE;
+            if (ms > 2000) ms = 2000; if (volf > 255.0f) volf = 255.0f; if (volf < 0.0f) volf = 0.0f;
+            Audio::playBeep(f0, (uint16_t)ms, (uint8_t)volf, wave);
+            delay(6);
+            s = strchr(p, ';');
+            if (!s) break; else s++;
+        }
+    }
+
+    // ===== GEMINI AI IMPLEMENTATION (consolidated) =====
+
+    // Forward declarations for helper functions
+    static size_t buildRequestJson(const char* userMessage, char* buffer, size_t bufferSize);
+    static bool makeHttpRequest(const char* jsonPayload, char* response, size_t maxResponseLen);
+    static bool extractResponseText(const char* jsonResponse, char* output, size_t maxOutputLen);
+    static bool testJsonStructure();
+
+    // ===== HELPER FUNCTION DEFINITIONS =====
+
+    size_t buildRequestJson(const char* userMessage, char* buffer, size_t bufferSize) {
+        StaticJsonDocument<512> doc;
+
+        // Build request for Gemini 2.5 Flash API structure
+        JsonArray contents = doc.createNestedArray("contents");
+        JsonObject contentObj = contents.createNestedObject();
+        JsonArray parts = contentObj.createNestedArray("parts");
+        JsonObject part = parts.createNestedObject();
+
+        // Combine system prompt with user message for efficiency
+        String fullPrompt = String(GEMINI_SYSTEM_PROMPT) + "\n\n" + userMessage;
+        part["text"] = fullPrompt;
+
+        // Optimized generation config for shorter responses
+        JsonObject gen = doc.createNestedObject("generationConfig");
+        gen["maxOutputTokens"] = 1024;
+        gen["temperature"] = 0.7;
+        gen["responseMimeType"] = "text/plain";
+
+        size_t len = serializeJson(doc, buffer, bufferSize);
+        Serial.printf("[GEMINI DEBUG] Generated JSON (length: %d): %s\n", len, buffer);
+        return len;
+    }
+
+    bool makeHttpRequest(const char* jsonPayload, char* response, size_t maxResponseLen) {
+        Serial.println("[GEMINI DEBUG] Creating WiFiClientSecure");
+        WiFiClientSecure client;
+        client.setInsecure();
+        client.setTimeout(15000);
+
+        char path[GEMINI_MAX_URL_LEN];
+        Serial.printf("[GEMINI DEBUG] Building path with model: %s, API key length: %d\n",
+                     GEMINI_MODEL, strlen(apiKey));
+        int pathLen = snprintf(path, sizeof(path), "/v1beta/models/%s:generateContent?key=%s", GEMINI_MODEL, apiKey);
+        Serial.printf("[GEMINI DEBUG] Path length: %d, buffer size: %d\n", pathLen, sizeof(path));
+        Serial.printf("[GEMINI DEBUG] Constructed path: %s\n", path);
+
+        if (pathLen >= sizeof(path)) {
+            Serial.println("[GEMINI DEBUG] WARNING: Path was truncated!");
+            strcpy(lastError, "URL too long");
+            return false;
+        }
+
+        Serial.println("[GEMINI DEBUG] Attempting to connect to generativelanguage.googleapis.com:443");
+        if (!client.connect("generativelanguage.googleapis.com", 443)) {
+            strcpy(lastError, "Connection failed");
+            Serial.println("[GEMINI DEBUG] Connection failed!");
+            return false;
+        }
+        Serial.println("[GEMINI DEBUG] Connected successfully!");
+
+        Serial.println("[GEMINI DEBUG] Sending HTTP headers");
+        client.printf("POST %s HTTP/1.1\r\n", path);
+        client.printf("Host: generativelanguage.googleapis.com\r\n");
+        client.printf("Content-Type: application/json\r\n");
+        client.printf("Content-Length: %d\r\n", strlen(jsonPayload));
+        client.printf("Connection: close\r\n\r\n");
+
+        Serial.println("[GEMINI DEBUG] Sending JSON payload");
+        client.print(jsonPayload);
+        Serial.println("[GEMINI DEBUG] Request sent, waiting for response");
+
+        // Wait for response
+        unsigned long timeout = millis() + GEMINI_REQUEST_TIMEOUT_MS;
+        while (client.available() == 0) {
+            if (millis() > timeout) {
+                client.stop();
+                strcpy(lastError, "Request timeout");
+                Serial.printf("[GEMINI DEBUG] Request timeout after %d ms\n", GEMINI_REQUEST_TIMEOUT_MS);
+                return false;
+            }
+            delay(10);
+        }
+
+        Serial.println("[GEMINI DEBUG] Response received, reading data");
+
+        // Read response fully
+        String responseString;
+        uint32_t readStart = millis();
+        while (client.connected() || client.available()) {
+            if (client.available()) {
+                char buf[512];
+                int n = client.read((uint8_t*)buf, sizeof(buf) - 1);
+                if (n > 0) {
+                    buf[n] = '\0';
+                    responseString += buf;
+                    readStart = millis();
+                }
+            } else {
+                if (millis() - readStart > GEMINI_REQUEST_TIMEOUT_MS) break;
+                delay(10);
+            }
+        }
+        client.stop();
+
+        Serial.printf("[GEMINI DEBUG] Response length: %d\n", responseString.length());
+
+        if (responseString.length() == 0) {
+            strcpy(lastError, "Empty response");
+            Serial.println("[GEMINI DEBUG] Empty response received");
+            return false;
+        }
+
+        // Try to locate JSON body
+        int idx = responseString.indexOf('{');
+        if (idx >= 0) {
+            String body = responseString.substring(idx);
+            Serial.printf("[GEMINI DEBUG] Raw response body: %s\n", body.c_str());
+            return extractResponseText(body.c_str(), response, maxResponseLen);
+        }
+
+        strcpy(lastError, "No JSON body found");
+        Serial.println("[GEMINI DEBUG] No JSON body found in response");
+        return false;
+    }
+
+    bool extractResponseText(const char* jsonResponse, char* output, size_t maxOutputLen) {
+        StaticJsonDocument<1536> doc;
+
+        DeserializationError error = deserializeJson(doc, jsonResponse);
+        if (error) {
+            snprintf(lastError, sizeof(lastError), "JSON parse error: %s", error.c_str());
+            return false;
+        }
+
+        // Check for API errors
+        if (doc.containsKey("error")) {
+            const char* errorMsg = doc["error"]["message"] | "Unknown API error";
+            strncpy(lastError, errorMsg, sizeof(lastError) - 1);
+            return false;
+        }
+
+        // Gemini 2.5 Flash response structure
+        const char* responseText = nullptr;
+
+        if (doc.containsKey("candidates") && doc["candidates"].size() > 0) {
+            JsonObject candidate = doc["candidates"][0];
+            if (candidate.containsKey("content") && candidate["content"].containsKey("parts")) {
+                JsonArray parts = candidate["content"]["parts"];
+                if (parts.size() > 0 && parts[0].containsKey("text")) {
+                    responseText = parts[0]["text"];
+                }
+            }
+        }
+
+        if (!responseText && doc.containsKey("text")) {
+            responseText = doc["text"];
+        }
+
+        if (!responseText) {
+            strcpy(lastError, "No response text found");
+            return false;
+        }
+
+        // Copy response with size limit
+        size_t len = strlen(responseText);
+        if (len >= maxOutputLen) {
+            len = maxOutputLen - 1;
+        }
+
+        memcpy(output, responseText, len);
+        output[len] = '\0';
+
+        return true;
+    }
+
+    bool testJsonStructure() {
+        char testBuffer[256];
+        const char* testMessage = "Test: hello";
+
+        size_t len = buildRequestJson(testMessage, testBuffer, sizeof(testBuffer));
+        if (len == 0) {
+            Serial.println("JSON build test FAILED - no data generated");
+            return false;
+        }
+
+        Serial.printf("JSON structure test - length: %d\n", len);
+        Serial.printf("JSON: %s\n", testBuffer);
+
+        String jsonStr = String(testBuffer);
+        bool hasContents = jsonStr.indexOf("\"contents\"") >= 0;
+        bool hasParts = jsonStr.indexOf("\"parts\"") >= 0;
+        bool hasText = jsonStr.indexOf("\"text\"") >= 0;
+        bool hasConfig = jsonStr.indexOf("\"generationConfig\"") >= 0;
+
+        Serial.printf("Structure validation: contents=%d, parts=%d, text=%d, config=%d\n",
+                      hasContents, hasParts, hasText, hasConfig);
+
+        return hasContents && hasParts && hasText && hasConfig;
+    }
+
+    // ===== MAIN AI METHODS =====
+
+    bool begin(const char* key) {
+        if (!key || strlen(key) >= GEMINI_API_KEY_MAX_LEN) {
+            strcpy(lastError, "Invalid API key");
+            return false;
+        }
+
+        strcpy(apiKey, key);
+        enabled = true;
+        currentState = AI_IDLE;
+        strcpy(lastError, "");
+
+        Serial.println("Gemini AI initialized");
+        return true;
+    }
+
+    bool sendMessage(const char* message, char* response, size_t maxResponseLen) {
+        requestCount++;
+
+        Serial.printf("[GEMINI DEBUG] sendMessage() called (request #%d) with message: %s\n", requestCount, message);
+        Serial.printf("[GEMINI DEBUG] enabled: %s, apiKey set: %s, currentState: %d\n",
+                     enabled ? "true" : "false",
+                     apiKey[0] ? "true" : "false",
+                     currentState);
+
+        if (!enabled || !apiKey[0] || currentState != AI_IDLE) {
+            strcpy(lastError, "AI not ready");
+            errorCount++;
+            Serial.printf("[GEMINI DEBUG] AI not ready - enabled: %s, apiKey: %s, state: %d\n",
+                         enabled ? "true" : "false",
+                         apiKey[0] ? "set" : "not set",
+                         currentState);
+            return false;
+        }
+
+        if (!message || !response || maxResponseLen < 32) {
+            strcpy(lastError, "Invalid parameters");
+            errorCount++;
+            Serial.println("[GEMINI DEBUG] Invalid parameters");
+            return false;
+        }
+
+        // Check WiFi connectivity
+        wl_status_t wifiStatus = WiFi.status();
+        Serial.printf("[GEMINI DEBUG] WiFi status: %d (WL_CONNECTED = %d)\n", wifiStatus, WL_CONNECTED);
+        if (wifiStatus != WL_CONNECTED) {
+            strcpy(lastError, "WiFi not connected");
+            errorCount++;
+            Serial.println("[GEMINI DEBUG] WiFi not connected");
+            return false;
+        }
+
+        Serial.println("[GEMINI DEBUG] Setting state to AI_PROCESSING");
+        currentState = AI_PROCESSING;
+
+        // Build JSON request
+        char jsonBuffer[2048];
+        Serial.println("[GEMINI DEBUG] Building JSON request");
+        String fullMsg;
+        if (hasHistory && lastModelText[0]) {
+            fullMsg.reserve(strlen(lastModelText) + strlen(message) + 64);
+            fullMsg += "Previous reply for context: ";
+            fullMsg += lastModelText;
+            fullMsg += "\nCurrent: ";
+            fullMsg += message;
+        } else {
+            fullMsg = String(message);
+        }
+        fullMsg += "\n\nDo not use markdown or code fences.";
+        size_t jsonLen = buildRequestJson(fullMsg.c_str(), jsonBuffer, sizeof(jsonBuffer));
+        Serial.printf("[GEMINI DEBUG] JSON built, length: %d\n", jsonLen);
+        if (jsonLen == 0) {
+            currentState = AI_ERROR;
+            strcpy(lastError, "Failed to build request");
+            Serial.println("[GEMINI DEBUG] Failed to build JSON request");
+            return false;
+        }
+
+        Serial.printf("[GEMINI DEBUG] JSON payload: %s\n", jsonBuffer);
+
+        // Make HTTP request
+        Serial.println("[GEMINI DEBUG] Making HTTP request");
+        bool success = makeHttpRequest(jsonBuffer, response, maxResponseLen);
+
+        if (success) {
+            Serial.printf("[GEMINI DEBUG] Success! Response: %s\n", response);
+            strlcpy(lastModelText, response, sizeof(lastModelText));
+            hasHistory = true;
+        } else {
+            errorCount++;
+            Serial.printf("[GEMINI DEBUG] HTTP request failed: %s\n", lastError);
+        }
+
+        // Always return to IDLE to allow retries even after errors
+        currentState = AI_IDLE;
+        return success;
+    }
 
     void initialize() {
         // AI initialization is handled in main setup()
     }
 
     bool isEnabled() {
-        return ENABLE_GEMINI_AI && DogeAI.isEnabled() && wifiEnabled;
+        return enabled;
     }
 
     bool isReady() {
-        return DogeAI.isReady();
+        return currentState == AI_IDLE;
     }
 
-    // Generate structured AI prompts with robot state information
+    AIState getState() {
+        return currentState;
+    }
+
+    const char* getLastError() {
+        return lastError;
+    }
+
+    void enable(bool state) {
+        enabled = state;
+    }
+
+    void clearHistory() {
+        hasHistory = false;
+        lastModelText[0] = '\0';
+    }
+
+    void getUsageStats(uint32_t& totalRequests, uint32_t& failedRequests) {
+        totalRequests = requestCount;
+        failedRequests = errorCount;
+    }
+
+    // Generate SHORT AI prompts for token efficiency
     String generateChatterPrompt() {
-        // Get current robot state information
-        String robotState = getRobotStateInfo();
+        // Get concise robot state
+        String state = getRobotStateInfo();
 
-        // Create a structured prompt that includes robot state and asks for structured response
-        String prompt = "You are DogePet, a companion robot with animated eyes and emotions. ";
-        prompt += "Current robot state: " + robotState;
-        prompt += "\n\n";
-        prompt += "Please respond with a JSON-like structure containing:\n";
-        prompt += "{\n";
-        prompt += "  \"animation\": \"eye animation parameters (e.g., blink, look_left, look_right, widen, narrow, happy, sad, curious, angry)\",\n";
-        prompt += "  \"sound_fx\": \"sound effect to play (e.g., curious, happy, thinking, chatter, question, surprise)\",\n";
-        prompt += "  \"toast_message\": \"short message to display on screen (keep under 200 chars)\",\n";
-        prompt += "  \"thought\": \"your inner thoughts or random observation (1-2 sentences)\"\n";
-        prompt += "}\n\n";
-        prompt += "Choose one of these scenarios:\n";
-
+        // Ultra-short prompt with random scenario
         const char* scenarios[] = {
-            "React to the current time of day",
-            "Comment on your current mood/emotion",
-            "Think about the last notification you saw",
-            "Wonder about your owner's activities",
-            "Reflect on your purpose as a companion robot",
-            "Imagine what humans might be doing right now",
-            "Consider what you'd like to learn next",
-            "Think about your favorite interaction today",
-            "Wonder about the future of AI companions",
-            "Reflect on the meaning of being 'alive' as a robot"
+            "React to time", "Comment on mood", "Think about notification",
+            "Wonder about owner", "Reflect on purpose", "Imagine human activity",
+            "Consider learning", "Think about interaction", "Wonder about AI future", "Reflect on being alive"
         };
 
-        int numScenarios = sizeof(scenarios) / sizeof(scenarios[0]);
-        prompt += String(scenarios[random(0, numScenarios)]);
+        int idx = random((int)(sizeof(scenarios)/sizeof(scenarios[0])));
+        String prompt = "DogePet robot state: " + state + ". " + String(scenarios[idx]) + ". Reply as JSON.";
 
         return prompt;
     }
 
-    // Get current robot state information for AI context
+    // Get CONCISE robot state information for token efficiency
     String getRobotStateInfo() {
         String state = "";
 
-        // Time information
-        state += "Time: " + String(chrono.getHourC()) + ":" + String(chrono.getMinute());
+        // Compact time and mood info
+        state += String(chrono.getHourC()) + ":" + String(chrono.getMinute());
 
-        // Mood information
-        String moodStr;
+        // Mood as single char
+        char moodChar;
         switch(curMood) {
-            case MS_DEFAULT: moodStr = "neutral"; break;
-            case MS_HAPPY: moodStr = "happy"; break;
-            case MS_ANGRY: moodStr = "angry"; break;
-            case MS_FURIOUS: moodStr = "furious"; break;
-            case MS_TIRED: moodStr = "tired"; break;
-            default: moodStr = "unknown"; break;
+            case MS_DEFAULT: moodChar = 'N'; break;  // Neutral
+            case MS_HAPPY: moodChar = 'H'; break;    // Happy
+            case MS_ANGRY: moodChar = 'A'; break;    // Angry
+            case MS_FURIOUS: moodChar = 'F'; break;  // Furious
+            case MS_TIRED: moodChar = 'T'; break;    // Tired
+            default: moodChar = '?'; break;
         }
-        state += ", Mood: " + moodStr;
+        state += " M:" + String(moodChar);
 
-        // Battery information
-        state += ", Battery: " + String(vbatPercent) + "%";
-        if (batteryCharging) state += " (charging)";
+        // Battery as single number
+        state += " B:" + String(vbatPercent);
 
-        // Last notification info (if available)
-        if (strlen(lastNotifTitle) > 0) {
-            state += ", Last notification: '" + String(lastNotifTitle) + "'";
-            if (strlen(lastNotifBody) > 0) {
-                String body = String(lastNotifBody);
-                if (body.length() > 50) body = body.substring(0, 47) + "...";
-                state += " - " + body;
-            }
-        }
-
-        // Activity status
-        state += ", Activity: ";
-        if (jiggling) state += "jiggling";
-        else if (furiousJiggling) state += "furious";
-        else if (shaking) state += "shaking";
-        else state += "calm";
+        // Activity status (single char)
+        char activityChar = 'C';  // Calm
+        if (jiggling) activityChar = 'J';      // Jiggling
+        else if (furiousJiggling) activityChar = 'F';  // Furious
+        else if (shaking) activityChar = 'S';          // Shaking
+        state += " A:" + String(activityChar);
 
         return state;
     }
@@ -177,8 +563,30 @@ namespace AICompanion {
             AnimationEngine::executeSoundFX(soundFx);
         }
 
-        // Extract toast message
+        // Procedural SFX sequence (compact format) — do not leak into toast text
+        {
+            String sfxSeq = extractJsonValue(response, "sfx");
+            if (sfxSeq.length() == 0) {
+                // also accept plain text line starting with SFX: but do not include in toast
+                int sidx = response.indexOf("SFX:");
+                if (sidx >= 0) {
+                    // take until end or newline/quote
+                    int end = response.indexOf('\n', sidx);
+                    if (end < 0) end = response.length();
+                    sfxSeq = response.substring(sidx, end);
+                }
+            }
+            if (sfxSeq.length() > 0) {
+                playSfxSequenceInline(sfxSeq.c_str());
+            }
+        }
+
+        // Extract toast message (preferred order: toast_message, message, thought)
         String toastMessage = extractJsonValue(response, "toast_message");
+        if (toastMessage.length() == 0) toastMessage = extractJsonValue(response, "message");
+        if (toastMessage.length() == 0) toastMessage = extractJsonValue(response, "text");
+        if (toastMessage.length() == 0) toastMessage = extractJsonValue(response, "reply");
+        if (toastMessage.length() > 0) toastMessage = sanitizeDisplayText(toastMessage);
         if (toastMessage.length() > 0) {
             showToast(toastMessage, 8000);
             didShowToast = true;
@@ -200,7 +608,11 @@ namespace AICompanion {
             String fallback = response;
             // If the cleaned response looks like JSON and has no toast_message, generate a random thought
             if ((fallback.startsWith("{") || fallback.startsWith("[")) && extractJsonValue(fallback, "toast_message").length() == 0) {
-                fallback = generateRandomThought();
+                // try generic fields from JSON-like content
+                String tryMsg = extractJsonValue(fallback, "message");
+                if (tryMsg.length() == 0) tryMsg = extractJsonValue(fallback, "text");
+                if (tryMsg.length() == 0) tryMsg = extractJsonValue(fallback, "reply");
+                if (tryMsg.length() > 0) fallback = sanitizeDisplayText(tryMsg); else fallback = generateRandomThought();
             }
             if (fallback.length() > 200) fallback = fallback.substring(0, 197) + "...";
             showToast(fallback, 9000);
@@ -258,17 +670,17 @@ namespace AICompanion {
     // Handle background AI chatter
     void handleBackgroundChatter() {
         if (ENABLE_AI_DEBUG_LOGS) Serial.println("[DEBUG] handleBackgroundChatter() called");
-        
+
         if (!ENABLE_AI_CHATTER) {
             if (ENABLE_AI_DEBUG_LOGS) Serial.println("[DEBUG] AI_CHATTER disabled in config");
             return;
         }
-        
+
         if (!ENABLE_GEMINI_AI) {
             if (ENABLE_AI_DEBUG_LOGS) Serial.println("[DEBUG] GEMINI_AI disabled in config");
             return;
         }
-        
+
         if (!wifiEnabled) {
             if (ENABLE_AI_DEBUG_LOGS) Serial.println("[DEBUG] WiFi not enabled");
             return;
@@ -276,22 +688,22 @@ namespace AICompanion {
 
         uint32_t currentMs = millis();
         uint32_t timeSinceLastChatter = currentMs - lastAIChatterMs;
-        if (ENABLE_AI_DEBUG_LOGS) Serial.printf("[DEBUG] Time since last chatter: %lu ms (interval: %lu ms)\n", 
+        if (ENABLE_AI_DEBUG_LOGS) Serial.printf("[DEBUG] Time since last chatter: %lu ms (interval: %lu ms)\n",
                      timeSinceLastChatter, AI_CHATTER_INTERVAL_MS);
-        
+
         if (timeSinceLastChatter < AI_CHATTER_INTERVAL_MS) {
             static uint32_t lastNotTimeLog = 0;
             if (ENABLE_AI_DEBUG_LOGS && currentMs - lastNotTimeLog > 3000) {
-                Serial.printf("[DEBUG] Not time for chatter yet, waiting %lu ms\n", 
-                             AI_CHATTER_INTERVAL_MS - timeSinceLastChatter);
+            Serial.printf("[DEBUG] Not time for chatter yet, waiting %lu ms\n",
+                         AI_CHATTER_INTERVAL_MS - timeSinceLastChatter);
                 lastNotTimeLog = currentMs;
             }
             return;
         }
 
         // Only chatter when idle (not processing other messages)
-        if (!DogeAI.isReady()) {
-            if (ENABLE_AI_DEBUG_LOGS) Serial.printf("[DEBUG] DogeAI not ready, state: %d\n", DogeAI.getState());
+        if (!AICompanion::isReady()) {
+            if (ENABLE_AI_DEBUG_LOGS) Serial.printf("[DEBUG] AI not ready, state: %d\n", AICompanion::getState());
             return;
         }
 
@@ -311,28 +723,28 @@ namespace AICompanion {
     // Handle AI message and send to Gemini
     void handleMessage(const char* message) {
         Serial.printf("[DEBUG] handleMessage() called with: %s\n", message);
-        
-        Serial.printf("[DEBUG] Checking conditions - GEMINI_AI: %s, DogeAI.isEnabled(): %s, wifiEnabled: %s\n",
+
+        Serial.printf("[DEBUG] Checking conditions - GEMINI_AI: %s, AI.isEnabled(): %s, wifiEnabled: %s\n",
                      ENABLE_GEMINI_AI ? "true" : "false",
-                     DogeAI.isEnabled() ? "true" : "false", 
+                     AICompanion::isEnabled() ? "true" : "false",
                      wifiEnabled ? "true" : "false");
-        
-        if (!ENABLE_GEMINI_AI || !DogeAI.isEnabled() || !wifiEnabled) {
+
+        if (!ENABLE_GEMINI_AI || !AICompanion::isEnabled() || !wifiEnabled) {
             if (!wifiEnabled) {
                 Serial.println("[DEBUG] AI disabled - WiFi is off");
                 showToast("AI: WiFi Off", 2000);
             } else if (!ENABLE_GEMINI_AI) {
                 Serial.println("[DEBUG] AI disabled - GEMINI_AI config is false");
             } else {
-                Serial.println("[DEBUG] AI disabled - DogeAI.isEnabled() is false");
+                Serial.println("[DEBUG] AI disabled - AICompanion::isEnabled() is false");
             }
             return;
         }
 
-        Serial.printf("[DEBUG] DogeAI state: %d, isReady(): %s\n", 
-                     DogeAI.getState(), DogeAI.isReady() ? "true" : "false");
+        Serial.printf("[DEBUG] AICompanion state: %d, isReady(): %s\n",
+                     AICompanion::getState(), AICompanion::isReady() ? "true" : "false");
 
-        if (!DogeAI.isReady()) {
+        if (!AICompanion::isReady()) {
             Serial.println("[DEBUG] AI not ready - returning");
             return;
         }
@@ -341,7 +753,7 @@ namespace AICompanion {
         uint32_t timeSinceLastSend = millis() - lastAISendMs;
         bool isBackgroundChatter = strstr(message, "[THINKING]") != nullptr;
         bool isVoiceTrigger = strstr(message, "[VOICE_TRIGGER]") != nullptr;
-        if (ENABLE_AI_DEBUG_LOGS) Serial.printf("[DEBUG] Time since last send: %lu ms (cooldown: %lu ms)\n", 
+        if (ENABLE_AI_DEBUG_LOGS) Serial.printf("[DEBUG] Time since last send: %lu ms (cooldown: %lu ms)\n",
                      timeSinceLastSend, GEMINI_COOLDOWN_MS);
         // Use randomized cooldown window; skip for voice triggers
         uint32_t cdMin = GEMINI_COOLDOWN_MIN_MS;
@@ -354,18 +766,18 @@ namespace AICompanion {
             effectiveCooldown = cdMin + jitter;
         }
         if (!isVoiceTrigger && timeSinceLastSend < effectiveCooldown) {
-            if (ENABLE_AI_DEBUG_LOGS) Serial.printf("[DEBUG] AI cooldown active - waiting %lu ms\n", 
+            if (ENABLE_AI_DEBUG_LOGS) Serial.printf("[DEBUG] AI cooldown active - waiting %lu ms\n",
                          effectiveCooldown - timeSinceLastSend);
             return;
         }
 
         // Check message type
         // Note: isBackgroundChatter and isVoiceTrigger moved above for cooldown logic
-        
+
         String messageType = "user message";
         if (isBackgroundChatter) messageType = "background chatter";
         else if (isVoiceTrigger) messageType = "voice trigger";
-        
+
         Serial.printf("[DEBUG] Message type: %s\n", messageType.c_str());
 
         // Show appropriate processing indicator with emojis
@@ -380,33 +792,25 @@ namespace AICompanion {
             showToast("Thinking... 🤔", 2000);
         }
 
-        Serial.println("[DEBUG] Calling DogeAI.sendMessage()");
+        Serial.println("[DEBUG] Calling AICompanion::sendMessage()");
 
-        // For voice triggers, wrap with concise "called by user" instruction that asks for a plain-text cute thought
+        // For voice triggers, use ultra-short prompt for efficiency
         const char* sendPtr = message;
         String wrapped;
         if (isVoiceTrigger) {
-            wrapped.reserve(512);
-            wrapped += GEMINI_SYSTEM_PROMPT;
-            wrapped += "\n\nThe user is calling to you.\n";
-            wrapped += "Reply with ONE short, cute random thought as PLAIN TEXT only.\n";
-            wrapped += "Constraints: <= 160 chars, include one emoji, no markdown, no quotes, no code.\n\n";
-            // Strip tag from user content (keep for context if present)
-            const char* content = strstr(message, "]");
-            if (content && *(content+1) == ' ') content += 2; else content = message;
-            wrapped += "User: ";
-            wrapped += content;
+            wrapped.reserve(256);
+            wrapped += "Say something cute and short with an emoji.";
             sendPtr = wrapped.c_str();
         }
 
         // Send message to Gemini
-        if (DogeAI.sendMessage(sendPtr, aiResponse, sizeof(aiResponse))) {
+        if (AICompanion::sendMessage(sendPtr, aiResponse, sizeof(aiResponse))) {
             lastAISendMs = millis();
             Serial.printf("[DEBUG] AI Response received: %s\n", aiResponse);
 
             if (isBackgroundChatter) {
                 Serial.println("[DEBUG] Processing as background chatter - calling executeAIActions()");
-                executeAIActions(aiResponse);
+                AICompanion::executeAIActions(aiResponse);
             } else if (isVoiceTrigger) {
                 Serial.println("[DEBUG] Processing as voice trigger - showing text toast");
                 String cleaned = stripCodeFences(String(aiResponse));
@@ -424,7 +828,7 @@ namespace AICompanion {
             }
         } else {
             // Show error
-            Serial.printf("[DEBUG] AI Error occurred: %s\n", DogeAI.getLastError());
+            Serial.printf("[DEBUG] AI Error occurred: %s\n", AICompanion::getLastError());
             showToast("AI Error! 😅", 3000);
         }
     }

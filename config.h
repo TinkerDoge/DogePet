@@ -47,6 +47,8 @@ static constexpr bool ENABLE_MOOD_SFX     = true;  // play mood-change SFX
 static constexpr bool ENABLE_BLE_SFX      = true;  // BLE UI/connect/disconnect SFX
 static constexpr bool ENABLE_TAP_SFX      = true;  // blink/tap tick
 static constexpr bool ENABLE_BINARY_CHATTER = true;  // show binary sequences when chattering
+// Play idle procedural audio during local (non-AI) chatter
+static constexpr bool ENABLE_IDLE_AUDIO_CHATTER = false; // sound only when AI chatter/response
 // Motion/emotion behavior toggles
 static constexpr bool ENABLE_TILT_HAPPY    = true;  // tilt -> happy
 static constexpr bool ENABLE_SHAKE_ANGRY   = true;  // shake -> angry
@@ -130,15 +132,14 @@ static constexpr bool      ENABLE_GEMINI_AI         = true;  // Enable AI featur
 // Debug logging for AI (set to true to see detailed logs)
 static constexpr bool      ENABLE_AI_DEBUG_LOGS     = false;
 static constexpr const char* GEMINI_API_KEY         = "AIzaSyBUI39g_byb1KUm_iNkvQF4y86mxCV8A28";    // Set your API key here
-//static constexpr const char* GEMINI_MODEL           = "gemini-2.0-flash";    // AI model to use
 static constexpr const char* GEMINI_MODEL           = "gemini-2.5-flash";    // AI model to use
 
-static constexpr uint32_t  GEMINI_COOLDOWN_MS      = 30000; // Minimum time between AI requests
+static constexpr uint32_t  GEMINI_COOLDOWN_MS      = 45000; // Longer cooldown to save tokens
 // Randomized cooldown range (used instead of fixed, unless both are equal)
-static constexpr uint32_t  GEMINI_COOLDOWN_MIN_MS  = 10000; // 10 seconds
-static constexpr uint32_t  GEMINI_COOLDOWN_MAX_MS  = 60000; // 60 seconds
+static constexpr uint32_t  GEMINI_COOLDOWN_MIN_MS  = 30000; // 30 seconds
+static constexpr uint32_t  GEMINI_COOLDOWN_MAX_MS  = 90000; // 90 seconds
 static constexpr bool      ENABLE_AI_CHATTER        = true;  // Enable background AI conversations
-static constexpr uint32_t  AI_CHATTER_INTERVAL_MS   = 30000; // 30 seconds between background chatter (for testing)
+static constexpr uint32_t  AI_CHATTER_INTERVAL_MS   = 60000; // 60 seconds between background chatter (token saving)
 
 // === WiFi Configuration ===
 static constexpr bool      ENABLE_WIFI              = true;  // Enable WiFi for AI features
