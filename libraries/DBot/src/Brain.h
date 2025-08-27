@@ -1,26 +1,32 @@
 #pragma once
-#include <Arduino.h>
+#include <string>
 #include <functional>
-#include "config.h"
 
-// Brain module wrapping AICompanion
+// Lightweight wrapper around an external AI backend.
 class Brain {
 public:
-    using StringHandler = std::function<void(const String&)>;
+    using Handler = std::function<void(const std::string&)>;
 
-    bool begin(const char* apiKey);
+    bool begin(const std::string& apiKey);
     void update();
 
-    void sendUserMessage(const String& msg);
-    String getLatestResponse() const;
+    void sendUserMessage(const std::string& msg);
+    const std::string& latestResponse() const;
 
-    void onAnimationCommand(StringHandler cb);
-    void onSoundFxCommand(StringHandler cb);
-    void onThought(StringHandler cb);
+    // Feed an AI response (JSON string) into the brain
+    void receiveAIResponse(const std::string& json);
+
+    void onAnimationCommand(Handler cb);
+    void onSoundFxCommand(Handler cb);
+    void onThought(Handler cb);
 
 private:
-    String _lastResponse;
-    StringHandler _animCb;
-    StringHandler _soundCb;
-    StringHandler _thoughtCb;
+    static std::string extract(const std::string& json, const std::string& key);
+
+    std::string _pending;
+    std::string _last;
+    Handler _animCb;
+    Handler _soundCb;
+    Handler _thoughtCb;
 };
+

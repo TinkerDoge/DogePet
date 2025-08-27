@@ -1,24 +1,19 @@
 #include "Input.h"
 
-void Input::begin() {
-    pinMode(TOUCH_PIN, INPUT_PULLUP);
-    pinMode(FUNC_BTN, INPUT_PULLUP);
-}
+using Clock = std::chrono::steady_clock;
 
-void Input::update() {
-    bool touch = digitalRead(TOUCH_PIN) == LOW;
+void Input::update(bool touch, bool func) {
     if (touch && !_lastTouch && _modeCb) {
         _modeCb();
     }
     _lastTouch = touch;
 
-    bool func = digitalRead(FUNC_BTN) == LOW;
-    uint32_t now = millis();
+    auto now = Clock::now();
     if (func && !_lastFunc) {
-        _funcPressMs = now;
+        _pressTime = now;
     } else if (!func && _lastFunc) {
-        uint32_t dur = now - _funcPressMs;
-        if (dur >= HOLD_TIME_MS) {
+        auto dur = std::chrono::duration_cast<std::chrono::milliseconds>(now - _pressTime);
+        if (dur >= holdTime) {
             if (_longCb) _longCb();
         } else {
             if (_shortCb) _shortCb();
@@ -27,6 +22,7 @@ void Input::update() {
     _lastFunc = func;
 }
 
-void Input::onModeCycle(VoidHandler cb) { _modeCb = cb; }
-void Input::onFuncShort(VoidHandler cb) { _shortCb = cb; }
-void Input::onFuncLong(VoidHandler cb) { _longCb = cb; }
+void Input::onModeCycle(VoidHandler cb) { _modeCb = std::move(cb); }
+void Input::onFuncShort(VoidHandler cb) { _shortCb = std::move(cb); }
+void Input::onFuncLong(VoidHandler cb)  { _longCb = std::move(cb); }
+

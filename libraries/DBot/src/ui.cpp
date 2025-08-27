@@ -1,19 +1,20 @@
 #include "ui.h"
 
-// Global toast function from existing codebase
-extern void showToast(const String& s, uint16_t ms);
+using Clock = std::chrono::steady_clock;
 
-void UI::begin() {
-    _nextUpdate = 0;
-}
+void UI::onToast(ToastHandler h) { _toast = std::move(h); }
 
 void UI::update() {
-    if (millis() >= _nextUpdate) {
-        _nextUpdate = millis() + DISPLAY_UPDATE_MS;
-        // Placeholder: draw operations would happen here
+    auto now = Clock::now();
+    if (_nextUpdate.time_since_epoch().count() == 0 || now >= _nextUpdate) {
+        _nextUpdate = now + updateInterval;
+        // Screen refresh work would be performed here
     }
 }
 
-void UI::showToast(const String& text, uint16_t ms) {
-    ::showToast(text, ms);
+void UI::showToast(const std::string& text, uint16_t ms) {
+    if (_toast) {
+        _toast(text, ms);
+    }
 }
+

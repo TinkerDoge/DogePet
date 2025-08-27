@@ -1,23 +1,13 @@
 #include "Voice.h"
-#include "../../../audio.h"
+#include <algorithm>
 
-void Voice::play(String sound) {
-    sound.toLowerCase();
-    sound.trim();
+void Voice::setHandler(Handler h) { _handler = std::move(h); }
 
-    if (sound == "blink") {
-        Audio::sfxBlink();
-    }
-    else if (sound == "happy" || sound == "joy") {
-        Audio::playCuteHello(150);
-    }
-    else if (sound == "sad" || sound == "tired") {
-        Audio::playCuteSleep(200);
-    }
-    else if (sound == "angry" || sound == "grumpy") {
-        Audio::playCuteNo(150);
-    }
-    else if (sound == "notify" || sound == "attention") {
-        Audio::sfxNotify();
+void Voice::play(const std::string& token) {
+    std::string t = token;
+    std::transform(t.begin(), t.end(), t.begin(), [](unsigned char c){ return std::tolower(c); });
+    if (_handler) {
+        _handler(t);
     }
 }
+

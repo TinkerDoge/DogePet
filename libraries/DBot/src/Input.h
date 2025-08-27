@@ -1,14 +1,13 @@
 #pragma once
-#include <Arduino.h>
 #include <functional>
-#include "config.h"
+#include <chrono>
 
 class Input {
 public:
     using VoidHandler = std::function<void()>;
 
-    void begin();
-    void update();
+    // In this refactored module the hardware layer feeds the button states
+    void update(bool touchPressed, bool funcPressed);
 
     void onModeCycle(VoidHandler cb);
     void onFuncShort(VoidHandler cb);
@@ -21,5 +20,7 @@ private:
 
     bool _lastTouch = false;
     bool _lastFunc = false;
-    uint32_t _funcPressMs = 0;
+    std::chrono::steady_clock::time_point _pressTime{};
+    static constexpr std::chrono::milliseconds holdTime{2000};
 };
+

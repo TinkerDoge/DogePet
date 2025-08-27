@@ -1,24 +1,31 @@
 #pragma once
-#include <Arduino.h>
-#include <stdint.h>
-#include "config.h"
+#include <string>
+#include <functional>
 
-// Mood states used by animation commands
-enum MoodState : uint8_t { MS_DEFAULT, MS_HAPPY, MS_ANGRY, MS_FURIOUS, MS_TIRED };
+class AnimationsEngine {
+public:
+    enum class Mood { Default, Happy, Angry, Furious, Tired };
+    enum class Direction { Center, Left, Right, Up, Down };
 
-// Animation engine functionality
-namespace AnimationsEngine {
-    void executeEyeAnimation(String animation);
-    void executeSoundFX(String soundFx);
+    using BlinkHandler = std::function<void()>;
+    using LookHandler  = std::function<void(Direction)>;
+    using MoodHandler  = std::function<void(Mood)>;
 
-    // Helpers exposed for other modules
-    void blinkWithSound();
-    void lookDirection(String direction);
-    void adjustEyeSize(String adjustment);
-    void setEyeMood(String mood);
-}
+    void onBlink(BlinkHandler h);
+    void onLook(LookHandler h);
+    void onMood(MoodHandler h);
 
-// External dependencies (provided by main application)
-extern bool silentMode;
-extern uint32_t moodUntil;
-extern void setEyesMood(MoodState mood);
+    void blink();
+    void look(Direction d);
+    void setMood(Mood m);
+    void update();
+
+    // Interpret simple textual commands (e.g., from AI)
+    void handleCommand(const std::string& cmd);
+
+private:
+    BlinkHandler _blink;
+    LookHandler  _look;
+    MoodHandler  _mood;
+};
+
