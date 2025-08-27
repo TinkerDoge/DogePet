@@ -24,6 +24,10 @@ typedef short int16_t;
 #include <Wire.h>
 #include <esp_system.h>
 #include <WiFi.h>
+#include <WebServer.h>
+#include <Preferences.h>
+#include <SPIFFS.h>
+#include <FS.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SH110X.h>
 #include <Adafruit_NeoPixel.h>
@@ -185,8 +189,6 @@ Adafruit_SH1106G display(SCREEN_W, SCREEN_H, &Wire, OLED_RESET); // Must exist B
 // GLOBAL CONSTANTS & CONFIGURATION
 // =============================================================================
 
-// === Timing Constants ==
-// const uint32_t SLEEP_AFTER_MS  = 7000;     // removed: do not auto-sleep when flat
 
 // === Frame Layout (shared by clock & notification) ===
 const int FRAME_X = 0;                 // left margin
@@ -218,6 +220,40 @@ static uint32_t lastRoboEyesUpdateMs = 0;
 static bool isSleeping = false;
 static bool isDimmed = false;
 static uint32_t lastActivityMs = 0;
+static bool isLazy = false;
+static uint32_t nextLazyJingleMs = 0;
+// WiFi config portal
+static bool configPortalActive = false;
+static WebServer* configServer = nullptr;
+static Preferences prefs;
+static bool spiffsReady = false;
+
+// ===== SPIFFS helpers =====
+static void ensureSPIFFS(){
+  if (!spiffsReady){
+    spiffsReady = SPIFFS.begin(true);
+  }
+}
+
+static void writeDefaultIndexHtmlIfMissing(){
+  ensureSPIFFS();
+  if (!spiffsReady) return;
+  if (!SPIFFS.exists("/index.html")){
+    File f = SPIFFS.open("/index.html", FILE_WRITE);
+    if (!f) return;
+    const char* html = R"HTML(
+<!doctype html><html><head><meta name=viewport content="width=device-width,initial-scale=1"><title>DogePet Setup</title><style>body{font-family:sans-serif;margin:16px}label{display:block;margin-top:10px}input,select{width:100%;padding:8px;margin-top:4px}button{margin-top:12px;padding:10px 14px}pre{white-space:pre-wrap}</style></head><body><h2>DogePet Setup</h2><div id=stat></div><form id=wifiForm><label>SSID</label><select name=ssid id=ssid></select><label>Password</label><input type=password name=pass id=pass><button type=submit>Connect WiFi</button></form><hr/><h3>Config</h3><form id=cfgForm></form><button id=saveBtn>Save Config</button><script>
+async function scan(){let r=await fetch('/scan');let j=await r.json();let s=document.getElementById('ssid');s.innerHTML='';j.forEach(x=>{let o=document.createElement('option');o.textContent=x;s.appendChild(o)});}
+async function loadCfg(){let r=await fetch('/config');let j=await r.json();let f=document.getElementById('cfgForm');f.innerHTML='';Object.keys(j).forEach(k=>{let v=j[k];let L=document.createElement('label');L.textContent=k;f.appendChild(L);let i;if(typeof v==='boolean'){i=document.createElement('select');['false','true'].forEach(b=>{let o=document.createElement('option');o.value=b;o.textContent=b;o.selected=(String(v)===b);i.appendChild(o);});} else {i=document.createElement('input');i.type='text';i.value=v;}i.name=k;f.appendChild(i);});}
+document.getElementById('wifiForm').addEventListener('submit',async(e)=>{e.preventDefault();let ssid=document.getElementById('ssid').value;let pass=document.getElementById('pass').value;let r=await fetch('/wifi/connect',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ssid,pass})});document.getElementById('stat').textContent=await r.text();});
+document.getElementById('saveBtn').addEventListener('click',async()=>{let f=document.getElementById('cfgForm');let o={};[...f.elements].forEach(el=>{if(!el.name)return;let v=el.value;if(v==='true'||v==='false'){o[el.name]=(v==='true');} else if(/^-?\d+$/.test(v)){o[el.name]=parseInt(v);} else {o[el.name]=v;}});let r=await fetch('/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(o)});document.getElementById('stat').textContent=await r.text();});
+scan();loadCfg();
+</script></body></html>
+)HTML";
+    f.print(html);
+    f.close();
+  }
+}
 
 // Forward declaration for notification popup
 static uint32_t notifPopupUntil = 0;
@@ -259,6 +295,7 @@ static float last_ax = 0, last_ay = 0, last_az = 0;
 static float last_gx = 0, last_gy = 0, last_gz = 0;
 
 uint8_t volume = AUDIO_DEFAULT_VOLUME;         // 0..255
+uint8_t savedVolume = AUDIO_DEFAULT_VOLUME;    // restore after silent mode
 
 // =============================================================================
 // ROBOEYES ANIMATION SYSTEM
@@ -293,8 +330,8 @@ void Eyes_Open() { Eyes.open(); }
 
 void setupRoboEyes() {
   Eyes.begin(SCREEN_W, SCREEN_H, 50);
-  Eyes.setWidth(40, 40);
-  Eyes.setHeight(26, 26);
+  Eyes.setWidth(28, 28);
+  Eyes.setHeight(40, 40);
   Eyes.setBorderradius(8, 8);
   Eyes.setSpacebetween(10);
   // Give the internal idle engine room to roam
@@ -480,8 +517,153 @@ bool detectDoublePress() {
   return false;
 }
 
+// Detect triple-press on FUNC button to toggle WiFi config portal
+bool detectTriplePressFUNC() {
+  static uint32_t lastPressTime = 0;
+  static uint8_t pressCount = 0;
+  static bool wasPressed = false;
+  const uint32_t windowMs = 900;
+
+  bool isPressed = (digitalRead(FUNC_BTN) == LOW);
+  uint32_t now = millis();
+  if (isPressed && !wasPressed) {
+    if (now - lastPressTime < windowMs) {
+      pressCount++;
+    } else {
+      pressCount = 1;
+    }
+    lastPressTime = now;
+  }
+  wasPressed = isPressed;
+  if (pressCount >= 3 && (now - lastPressTime > 100)) { pressCount = 0; return true; }
+  // expire window
+  if (pressCount > 0 && (now - lastPressTime > windowMs)) pressCount = 0;
+  return false;
+}
+
+// ===== WiFi Config Portal =====
+static void portalHandleRoot() {
+  if (!configServer) return;
+  ensureSPIFFS(); writeDefaultIndexHtmlIfMissing();
+  if (!spiffsReady) { configServer->send(500, "text/plain", "SPIFFS mount failed"); return; }
+  File f = SPIFFS.open("/index.html", FILE_READ);
+  if (!f) { configServer->send(404, "text/plain", "index.html missing"); return; }
+  configServer->streamFile(f, "text/html");
+  f.close();
+}
+
+static void portalHandleConfigGet(){
+  if (!configServer) return;
+  ensureSPIFFS();
+  if (spiffsReady && SPIFFS.exists("/config.json")){
+    File f = SPIFFS.open("/config.json", FILE_READ);
+    configServer->streamFile(f, "application/json");
+    f.close();
+    return;
+  }
+  // synthesize defaults from compile-time settings
+  String json = "{";
+  json += "\"ENABLE_GEMINI_AI\":"; json += (ENABLE_GEMINI_AI?"true":"false"); json += ",";
+  json += "\"ENABLE_AI_CHATTER\":"; json += (ENABLE_AI_CHATTER?"true":"false"); json += ",";
+  json += "\"AI_CHATTER_INTERVAL_MS\":"; json += AI_CHATTER_INTERVAL_MS; json += ",";
+  json += "\"GEMINI_COOLDOWN_MIN_MS\":"; json += GEMINI_COOLDOWN_MIN_MS; json += ",";
+  json += "\"GEMINI_COOLDOWN_MAX_MS\":"; json += GEMINI_COOLDOWN_MAX_MS; json += ",";
+  json += "\"ENABLE_IDLE_AUDIO_CHATTER\":"; json += (ENABLE_IDLE_AUDIO_CHATTER?"true":"false"); json += ",";
+  json += "\"ENABLE_BINARY_CHATTER\":"; json += (ENABLE_BINARY_CHATTER?"true":"false"); json += ",";
+  json += "\"ENABLE_LAZY_MODE\":"; json += (ENABLE_LAZY_MODE?"true":"false"); json += ",";
+  json += "\"LAZY_AFTER_MS\":"; json += LAZY_AFTER_MS; json += ",";
+  json += "\"LAZY_JINGLE_MIN_MS\":"; json += LAZY_JINGLE_MIN_MS; json += ",";
+  json += "\"LAZY_JINGLE_MAX_MS\":"; json += LAZY_JINGLE_MAX_MS;
+  json += "}";
+  configServer->send(200, "application/json", json);
+}
+
+static void portalHandleConfigPost(){
+  if (!configServer) return;
+  ensureSPIFFS(); if (!spiffsReady){ configServer->send(500, "text/plain", "SPIFFS mount failed"); return; }
+  String body = configServer->arg("plain");
+  File f = SPIFFS.open("/config.json", FILE_WRITE);
+  if (!f){ configServer->send(500, "text/plain", "Write failed"); return; }
+  f.print(body);
+  f.close();
+  configServer->send(200, "text/plain", "Config saved");
+}
+
+static void portalHandleScan() {
+  if (!configServer) return;
+  WiFi.scanDelete();
+  WiFi.scanNetworks();
+  // return JSON list
+  int n = WiFi.scanComplete();
+  String out = "[";
+  for (int i=0;i<n;i++){ if (i) out += ","; out += '"'; out += WiFi.SSID(i); out += '"'; }
+  out += "]";
+  configServer->send(200, "application/json", out);
+}
+
+static void startConfigPortal() {
+  if (configPortalActive) return;
+  wifiEnabled = false;
+  WiFi.disconnect(true);
+  WiFi.mode(WIFI_AP);
+  WiFi.softAP("DogePet-Setup");
+  if (!configServer) configServer = new WebServer(80);
+  configServer->on("/", portalHandleRoot);
+  configServer->on("/index.html", portalHandleRoot);
+  configServer->on("/scan", portalHandleScan);
+  configServer->on("/config", HTTP_GET, portalHandleConfigGet);
+  configServer->on("/config", HTTP_POST, portalHandleConfigPost);
+  configServer->on("/wifi/connect", HTTP_POST, [](){
+    String body = configServer->arg("plain");
+    String ssid, pass;
+    int s = body.indexOf("\"ssid\"");
+    if (s>=0){ s = body.indexOf(':', s); int q=body.indexOf('"', s+1); int q2=body.indexOf('"', q+1); ssid = body.substring(q+1,q2); }
+    int p = body.indexOf("\"pass\"");
+    if (p>=0){ p = body.indexOf(':', p); int q=body.indexOf('"', p+1); int q2=body.indexOf('"', q+1); pass = body.substring(q+1,q2); }
+    prefs.begin("cfg", false);
+    prefs.putString("wifi_ssid", ssid);
+    prefs.putString("wifi_pass", pass);
+    prefs.end();
+    configServer->send(200, "text/plain", "Saved WiFi, triple-press FUNC to connect.");
+  });
+  configServer->begin();
+  configPortalActive = true;
+  showToast("Setup AP: DogePet-Setup", 3000);
+}
+
+static void stopConfigPortalAndConnect() {
+  if (!configPortalActive) return;
+  if (configServer) { configServer->stop(); }
+  WiFi.softAPdisconnect(true);
+  WiFi.mode(WIFI_STA);
+  // read saved creds
+  prefs.begin("cfg", true);
+  String ssid = prefs.getString("wifi_ssid", "");
+  String pass = prefs.getString("wifi_pass", "");
+  prefs.end();
+  if (ssid.length() == 0) {
+    showToast("No WiFi creds saved", 2000);
+    configPortalActive = false;
+    return;
+  }
+  showToast("Connecting...", 2000);
+  WiFi.begin(ssid.c_str(), pass.c_str());
+  unsigned long t0 = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - t0 < WIFI_CONNECT_TIMEOUT_MS) { delay(250); }
+  wifiEnabled = (WiFi.status() == WL_CONNECTED);
+  showToast(wifiEnabled ? "WiFi Connected!" : "WiFi Failed", 2000);
+  configPortalActive = false;
+}
+
 void updateBleToggleUI() {
   bool btn = (digitalRead(FUNC_BTN)==LOW);
+
+  // Priority: triple press toggles WiFi config portal
+  if (detectTriplePressFUNC()) {
+    if (!configPortalActive) startConfigPortal();
+    else stopConfigPortalAndConnect();
+    return;
+  }
 
   // Check for double press (WiFi toggle) first
   if (detectDoublePress()) {
@@ -645,6 +827,30 @@ inline void updatePowerManagement() {
     lastActivityMs = currentMs;
   }
 
+  // Lazy mode entry
+  if (ENABLE_LAZY_MODE) {
+    if (!isLazy && (currentMs - lastActivityMs > LAZY_AFTER_MS)) {
+      isLazy = true;
+      // Close eyes, set calm mood
+      Eyes.close();
+      setEyesMood(MS_TIRED);
+      // Silence chatter and mic reactions
+      talkativeLevel = 0;
+      // schedule first subtle jingle
+      nextLazyJingleMs = currentMs + (uint32_t)(LAZY_JINGLE_MIN_MS + (esp_random() % (LAZY_JINGLE_MAX_MS - LAZY_JINGLE_MIN_MS + 1)));
+    }
+    // Wake on shake only
+    if (isLazy) {
+      // detect strong movement using existing flags
+      if (shaking || furiousShaking) {
+        isLazy = false;
+        lastActivityMs = currentMs;
+        Eyes.open();
+        setEyesMood(MS_HAPPY);
+      }
+    }
+  }
+
   // Check for dimming (LED only, display doesn't support brightness)
   if (!isSleeping && !isDimmed && (currentMs - lastActivityMs > DIM_AFTER_MS)) {
     isDimmed = true;
@@ -653,19 +859,6 @@ inline void updatePowerManagement() {
       strip.show();
     }
     Serial.println("LED dimmed for power saving");
-  }
-
-  // Check for sleep (clear display and dim LED)
-  if (!isSleeping && (currentMs - lastActivityMs > SLEEP_AFTER_MS)) {
-    isSleeping = true;
-    isDimmed = true;
-    display.clearDisplay();
-    display.display();  // Update display to show blank
-    if (ENABLE_LED_STATUS) {
-      strip.setBrightness(1);
-      strip.show();
-    }
-    Serial.println("Entering sleep mode for power saving");
   }
 }
 
@@ -704,10 +897,6 @@ inline void checkMicrophoneNoise() {
   if (currentMs - lastDebugMs > 1000) {
     bool audioPlaying = Audio::isAudioPlaying();
     bool micCooldown = Audio::isMicrophoneInCooldown();
-    //Serial.printf("Mic Level: %.2f (Threshold: %.2f, Gain: 80x) | Audio: %s | Cooldown: %s\n",
-    //              micLevel, MIC_NOISE_THRESHOLD,
-    //              audioPlaying ? "PLAYING" : "IDLE",
-    //              micCooldown ? "YES" : "NO");
     lastDebugMs = currentMs;
   }
 
@@ -997,7 +1186,9 @@ void loop() {
                  wifiEnabled ? "true" : "false", currentMs);
     lastDebugMs = currentMs;
   }
-  AICompanion::handleBackgroundChatter();
+  if (!isLazy) {
+    AICompanion::handleBackgroundChatter();
+  }
 
   // Face switching (hold on TOUCH_PIN to avoid conflict with triple tap)
   {
@@ -1032,12 +1223,14 @@ void loop() {
     wakeUp(); // Wake up on triple-tap
     silentMode = !silentMode;
     if (silentMode) {
-      savedTalkativeLevel = (talkativeLevel == 0) ? BOT_TALKATIVE_LEVEL : talkativeLevel;
-      talkativeLevel = 0;
+      savedVolume = volume;
+      volume = 0;
+      Audio::setMasterVolume(0);
       if (ENABLE_MODE_SFX) Audio::sfxError();
       showToast("Silent mode 🤫", 1200);Serial.println("Silent mode");
     } else {
-      talkativeLevel = savedTalkativeLevel;
+      volume = savedVolume;
+      Audio::setMasterVolume(volume);
       if (ENABLE_MODE_SFX) Audio::sfxConfirm();
       showToast("Chatty mode 🎵", 1200);Serial.println("Chatty mode");
     }
@@ -1055,19 +1248,35 @@ void loop() {
         static bool wasBlinking = false;
         static uint32_t lastAutoBlinkSfxMs = 0;
 
-        bool wasBlinkingBefore = (!Eyes.eyeL_open || !Eyes.eyeR_open);
-        Eyes.update();
-        bool isBlinkingAfter = (!Eyes.eyeL_open || !Eyes.eyeR_open);
+        if (!isLazy) {
+          bool wasBlinkingBefore = (!Eyes.eyeL_open || !Eyes.eyeR_open);
+          Eyes.update();
+          bool isBlinkingAfter = (!Eyes.eyeL_open || !Eyes.eyeR_open);
 
-        if (!wasBlinkingBefore && isBlinkingAfter && ENABLE_TAP_SFX && !silentMode &&
-            (currentMs - lastAutoBlinkSfxMs > 800)) {
-          Audio::sfxBlink();
-          lastAutoBlinkSfxMs = currentMs;
+          if (!wasBlinkingBefore && isBlinkingAfter && ENABLE_TAP_SFX && !silentMode &&
+              (currentMs - lastAutoBlinkSfxMs > 800)) {
+            Audio::sfxBlink();
+            lastAutoBlinkSfxMs = currentMs;
+          }
+        } else {
+          // Lazy mode subtle bobbing: small vertical motion at low rate
+          static int dir = 1; static int bob = 0;
+          if ((currentMs / 400) % 2 == 0) {
+            bob += dir;
+            if (bob > 2) { bob = 2; dir = -1; }
+            if (bob < -2) { bob = -2; dir = 1; }
+            Eyes.setPosition((bob >= 0) ? N : S);
+          }
+          // Occasionally play tiny sleep jingle
+          if (!silentMode && currentMs >= nextLazyJingleMs) {
+            Audio::playCuteSleep(0);
+            nextLazyJingleMs = currentMs + (uint32_t)(LAZY_JINGLE_MIN_MS + (esp_random() % (LAZY_JINGLE_MAX_MS - LAZY_JINGLE_MIN_MS + 1)));
+          }
         }
         lastRoboEyesUpdateMs = currentMs;
       }
       // Suppress random idle SFX during jiggling or non-default moods to keep it calm
-      if (ENABLE_IDLE_CHATTER && !silentMode && !jiggling && curMood == MS_DEFAULT) {
+      if (!isLazy && ENABLE_IDLE_CHATTER && !silentMode && !jiggling && curMood == MS_DEFAULT) {
         // Talkativeness mapping: threshold and cooldown by level
         static uint32_t lastChatterMs = 0;
         uint8_t lvl = talkativeLevel; if (lvl > 5) lvl = 5;

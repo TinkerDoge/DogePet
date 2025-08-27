@@ -9,6 +9,61 @@
 #include <WiFiClientSecure.h>
 #include <ArduinoJson.h>
 #include <string.h>
+#include <cstring>
+#include <cstdlib>
+#include <esp_system.h>
+#include <cstdio>
+
+// Silence all Serial logs in this module when AI debug logs are disabled
+#if defined(ARDUINO)
+#if !ENABLE_AI_DEBUG_LOGS
+struct AI_QuietSerial_ {
+    template<typename... Args> void printf(const char*, Args...){ }
+    template<typename... Args> void print(Args...){ }
+    template<typename... Args> void println(Args...){ }
+};
+static AI_QuietSerial_ AI_QSERIAL;
+#undef Serial
+#define Serial AI_QSERIAL
+#endif
+#endif
+
+// Lint-time fallbacks for non-Arduino analysis environments
+#ifndef ARDUINO
+struct DummySerial_ { template<typename... Args> void printf(const char*, Args...){ } void println(const char*){} void print(const char*){} };
+static DummySerial_ Serial;
+static inline unsigned long millis(){ return 0; }
+static inline void delay(unsigned long) {}
+#endif
+
+#ifndef ESP_PLATFORM
+static inline uint32_t esp_random(){ return (uint32_t)rand(); }
+#endif
+
+// Minimal C string fallbacks for lint-only environments (must appear before other fallbacks)
+#ifndef ARDUINO
+static inline size_t strlen(const char* s){ size_t n=0; if(!s) return 0; while(s[n]) ++n; return n; }
+static inline void* memcpy(void* d, const void* s, size_t n){
+    unsigned char* dp=(unsigned char*)d; const unsigned char* sp=(const unsigned char*)s;
+    for(size_t i=0;i<n;++i) dp[i]=sp[i]; return d;
+}
+static inline char* strcpy(char* d, const char* s){ char* o=d; while((*d++=*s++)); return o; }
+static inline char* strncpy(char* d, const char* s, size_t n){ size_t i=0; for(; i<n && s[i]; ++i) d[i]=s[i]; for(; i<n; ++i) d[i]='\0'; return d; }
+static inline const char* strchr(const char* s, int c){ while(*s){ if(*s==(char)c) return s; ++s; } return c==0?s:nullptr; }
+static inline const char* strstr(const char* h, const char* n){ if(!*n) return h; for(; *h; ++h){ if(*h==*n){ const char* a=h; const char* b=n; while(*a && *b && *a==*b){ ++a; ++b; } if(!*b) return h; } } return nullptr; }
+#endif
+
+#if !defined(ARDUINO)
+#ifndef HAVE_STRLCPY_FALLBACK
+#define HAVE_STRLCPY_FALLBACK 1
+static inline size_t strlcpy(char* dst, const char* src, size_t size){
+    size_t len = strlen(src);
+    size_t copy = (size == 0) ? 0 : (len < (size - 1) ? len : (size - 1));
+    if (size > 0) { memcpy(dst, src, copy); dst[copy] = '\0'; }
+    return len;
+}
+#endif
+#endif
 
 // Ensure stdint types are available
 #ifndef uint32_t
@@ -87,12 +142,27 @@ namespace AICompanion {
             "Let's do this! ????"
         };
         int n = (int)(sizeof(THOUGHTS)/sizeof(THOUGHTS[0]));
-        return String(THOUGHTS[random(n)]);
+        int idx = (int)(esp_random() % (uint32_t)n);
+        return String(THOUGHTS[idx]);
     }
 
     // Helper: sanitize any model text for toast display
     static String sanitizeDisplayText(const String& input) {
         String s = stripCodeFences(input);
+        // Remove any inline or line-start SFX specifications (case-insensitive)
+        {
+            String sLower = String(s);
+            sLower.toLowerCase();
+            int pos = sLower.indexOf("sfx:");
+            while (pos >= 0) {
+                int eol = s.indexOf('\n', pos);
+                if (eol < 0) eol = s.length();
+                s.remove(pos, eol - pos);
+                sLower = String(s);
+                sLower.toLowerCase();
+                pos = sLower.indexOf("sfx:");
+            }
+        }
         // Remove bracket tags and common meta markers
         s.replace("[THINKING]", "");
         s.replace("[VOICE_TRIGGER]", "");
@@ -108,6 +178,7 @@ namespace AICompanion {
             if (ltrim.startsWith("SFX:") || ltrim.startsWith("sfx:")) drop = true;
             if (ltrim.startsWith("System:") || ltrim.startsWith("Instruction:")) drop = true;
             if (ltrim.startsWith("Inner thought") || ltrim.startsWith("Thought:")) drop = true;
+            
             if (ltrim.startsWith("Previous reply for context:")) drop = true;
             if (ltrim.startsWith("DogePet:")) {
                 // Often echo of prompt; drop it
@@ -507,7 +578,7 @@ namespace AICompanion {
             "Consider learning", "Think about interaction", "Wonder about AI future", "Reflect on being alive"
         };
 
-        int idx = random((int)(sizeof(scenarios)/sizeof(scenarios[0])));
+        int idx = (int)(esp_random() % (uint32_t)(sizeof(scenarios)/sizeof(scenarios[0])));
         String prompt = "DogePet robot state: " + state + ". " + String(scenarios[idx]) + ". Reply as JSON.";
 
         return prompt;
@@ -563,19 +634,9 @@ namespace AICompanion {
             AnimationEngine::executeSoundFX(soundFx);
         }
 
-        // Procedural SFX sequence (compact format) — do not leak into toast text
+        // Procedural SFX sequence (compact format) — only when explicit JSON field present
         {
             String sfxSeq = extractJsonValue(response, "sfx");
-            if (sfxSeq.length() == 0) {
-                // also accept plain text line starting with SFX: but do not include in toast
-                int sidx = response.indexOf("SFX:");
-                if (sidx >= 0) {
-                    // take until end or newline/quote
-                    int end = response.indexOf('\n', sidx);
-                    if (end < 0) end = response.length();
-                    sfxSeq = response.substring(sidx, end);
-                }
-            }
             if (sfxSeq.length() > 0) {
                 playSfxSequenceInline(sfxSeq.c_str());
             }
@@ -595,6 +656,7 @@ namespace AICompanion {
         // Extract thought (display as longer toast if no specific message)
         String thought = extractJsonValue(response, "thought");
         if (thought.length() > 0 && toastMessage.length() == 0) {
+            thought = sanitizeDisplayText(thought);
             // Split long thoughts into shorter toasts
             if (thought.length() > 60) {
                 thought = thought.substring(0, 57) + "...";
@@ -614,6 +676,8 @@ namespace AICompanion {
                 if (tryMsg.length() == 0) tryMsg = extractJsonValue(fallback, "reply");
                 if (tryMsg.length() > 0) fallback = sanitizeDisplayText(tryMsg); else fallback = generateRandomThought();
             }
+            // Always sanitize plain-text fallback as well
+            fallback = sanitizeDisplayText(fallback);
             if (fallback.length() > 200) fallback = fallback.substring(0, 197) + "...";
             showToast(fallback, 9000);
         }
@@ -670,17 +734,17 @@ namespace AICompanion {
     // Handle background AI chatter
     void handleBackgroundChatter() {
         if (ENABLE_AI_DEBUG_LOGS) Serial.println("[DEBUG] handleBackgroundChatter() called");
-
+        
         if (!ENABLE_AI_CHATTER) {
             if (ENABLE_AI_DEBUG_LOGS) Serial.println("[DEBUG] AI_CHATTER disabled in config");
             return;
         }
-
+        
         if (!ENABLE_GEMINI_AI) {
             if (ENABLE_AI_DEBUG_LOGS) Serial.println("[DEBUG] GEMINI_AI disabled in config");
             return;
         }
-
+        
         if (!wifiEnabled) {
             if (ENABLE_AI_DEBUG_LOGS) Serial.println("[DEBUG] WiFi not enabled");
             return;
@@ -690,11 +754,11 @@ namespace AICompanion {
         uint32_t timeSinceLastChatter = currentMs - lastAIChatterMs;
         if (ENABLE_AI_DEBUG_LOGS) Serial.printf("[DEBUG] Time since last chatter: %lu ms (interval: %lu ms)\n",
                      timeSinceLastChatter, AI_CHATTER_INTERVAL_MS);
-
+        
         if (timeSinceLastChatter < AI_CHATTER_INTERVAL_MS) {
             static uint32_t lastNotTimeLog = 0;
             if (ENABLE_AI_DEBUG_LOGS && currentMs - lastNotTimeLog > 3000) {
-            Serial.printf("[DEBUG] Not time for chatter yet, waiting %lu ms\n",
+            Serial.printf("[DEBUG] Not time for chatter yet, waiting %lu ms\n", 
                          AI_CHATTER_INTERVAL_MS - timeSinceLastChatter);
                 lastNotTimeLog = currentMs;
             }
@@ -723,12 +787,12 @@ namespace AICompanion {
     // Handle AI message and send to Gemini
     void handleMessage(const char* message) {
         Serial.printf("[DEBUG] handleMessage() called with: %s\n", message);
-
+        
         Serial.printf("[DEBUG] Checking conditions - GEMINI_AI: %s, AI.isEnabled(): %s, wifiEnabled: %s\n",
                      ENABLE_GEMINI_AI ? "true" : "false",
                      AICompanion::isEnabled() ? "true" : "false",
                      wifiEnabled ? "true" : "false");
-
+        
         if (!ENABLE_GEMINI_AI || !AICompanion::isEnabled() || !wifiEnabled) {
             if (!wifiEnabled) {
                 Serial.println("[DEBUG] AI disabled - WiFi is off");
@@ -773,11 +837,11 @@ namespace AICompanion {
 
         // Check message type
         // Note: isBackgroundChatter and isVoiceTrigger moved above for cooldown logic
-
+        
         String messageType = "user message";
         if (isBackgroundChatter) messageType = "background chatter";
         else if (isVoiceTrigger) messageType = "voice trigger";
-
+        
         Serial.printf("[DEBUG] Message type: %s\n", messageType.c_str());
 
         // Show appropriate processing indicator with emojis
@@ -802,7 +866,7 @@ namespace AICompanion {
             wrapped += "Say something cute and short with an emoji.";
             sendPtr = wrapped.c_str();
         }
-
+        
         // Send message to Gemini
         if (AICompanion::sendMessage(sendPtr, aiResponse, sizeof(aiResponse))) {
             lastAISendMs = millis();
@@ -813,7 +877,7 @@ namespace AICompanion {
                 AICompanion::executeAIActions(aiResponse);
             } else if (isVoiceTrigger) {
                 Serial.println("[DEBUG] Processing as voice trigger - showing text toast");
-                String cleaned = stripCodeFences(String(aiResponse));
+                String cleaned = sanitizeDisplayText(String(aiResponse));
                 if (cleaned.length() > 200) cleaned = cleaned.substring(0, 197) + "...";
                 showToast(cleaned, 9000);
                 // Optional small friendly animation

@@ -83,11 +83,18 @@ static constexpr uint32_t  NON_EYES_DELAY_MS  = 12;      // faster polling so tr
 static constexpr uint32_t  DISPLAY_UPDATE_MS  = 50;      // ~20Hz display updates
 static constexpr uint32_t  ROBOEYES_UPDATE_MS = 30;      // ~33Hz RoboEyes updates
 // Power management
-static constexpr uint32_t  SLEEP_AFTER_MS      = 30000;   // enter sleep after 30s of no movement
+// Disable legacy auto-sleep; Lazy mode handles low-power behavior
+//static constexpr uint32_t  SLEEP_AFTER_MS      = 0xFFFFFFFF;   // effectively disabled
 static constexpr uint32_t  DIM_AFTER_MS        = 10000;   // dim display after 10s of no movement
 static constexpr uint8_t   SLEEP_BRIGHTNESS    = 10;      // dimmed brightness (0-255)
 static constexpr uint8_t   NORMAL_BRIGHTNESS   = 60;      // normal brightness
 static constexpr uint32_t  TOAST_UPDATE_MS     = 2000;     // minimum time between toast redraws (anti-flicker)
+
+// === Lazy mode (low-power idle) ===
+static constexpr bool      ENABLE_LAZY_MODE     = true;
+static constexpr uint32_t  LAZY_AFTER_MS        = 120000;   // 2 minutes of inactivity
+static constexpr uint32_t  LAZY_JINGLE_MIN_MS   = 15000;    // min interval between subtle jingles
+static constexpr uint32_t  LAZY_JINGLE_MAX_MS   = 30000;    // max interval between subtle jingles
 
 // === Tap Detection Constants ===
 static constexpr float     TAP_SPIKE_DPS      = 140.0f;  // quick rotation spike => blink
@@ -106,7 +113,7 @@ static constexpr float     VBAT_CAL     = 1.0518f; // scale ADC to multimeter
 // Charging detection
 static constexpr float     VBAT_CHARGE_V        = 4.04f;  // align at/just below MAX so it can trip
 static constexpr float     VBAT_CHARGE_HYST_V   = 0.04f;  // drop below (VBAT_CHARGE_V - this) to clear
-static constexpr uint8_t   VBAT_CHARGE_MIN_COUNT = 2;     // consecutive reads to confirm
+static constexpr uint8_t   VBAT_CHARGE_MIN_COUNT = 3;     // consecutive reads to confirm
 
 // === Audio defaults ===
 static constexpr uint32_t  AUDIO_SAMPLE_RATE   = 22050;
@@ -117,10 +124,10 @@ static constexpr uint8_t   AUDIO_DEFAULT_VOLUME = 50;  // 0..255
 static constexpr bool      ENABLE_MIC_LISTENING = true;  // Enable microphone feature
 static constexpr uint32_t  MIC_SAMPLE_RATE      = 16000; // 16kHz for voice/noise detection
 static constexpr uint16_t  MIC_BUFFER_SIZE      = 1024;  // Buffer size for audio samples (larger = better averaging)
-static constexpr float     MIC_NOISE_THRESHOLD  = 0.5f; // RMS threshold for noise detection (lower = more sensitive)
-static constexpr uint32_t  MIC_CHECK_INTERVAL   = 100;   // Check every 100ms
+static constexpr float     MIC_NOISE_THRESHOLD  = 0.4f; // RMS threshold for noise detection (lower = more sensitive)
+static constexpr uint32_t  MIC_CHECK_INTERVAL   = 500;   // Check every 500ms
 static constexpr uint32_t  MIC_COOLDOWN_MS      = 2000;  // Minimum time between reactions
-static constexpr uint32_t  MIC_FEEDBACK_COOLDOWN_MS = 300; // Cooldown after audio playback
+static constexpr uint32_t  MIC_FEEDBACK_COOLDOWN_MS = 500; // Cooldown after audio playback
 // Initial motion/emotion state defaults
 static constexpr bool      DEFAULT_SHAKING          = true;
 static constexpr bool      DEFAULT_FURIOUS_SHAKING  = true;
