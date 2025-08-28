@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="560" viewBox="0 0 820 560" font-family="Segoe UI, Roboto, Helvetica, Arial" font-size="13">
+  <defs>
+    <style>
+      .box { fill:#fff; stroke:#333; stroke-width:1.2; rx:6; }
+      .title { font-weight:600; }
+      .arrow { stroke:#555; stroke-width:1.2; marker-end:url(#arrow); fill:none; }
+    </style>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L7,3 z" fill="#555" />
+    </marker>
+  </defs>
+
+  <rect x="20" y="20" width="780" height="520" fill="#fafafa" stroke="#ddd"/>
+  <text x="30" y="45" class="title">Animation Engine Flow (Eyes + Overlays)</text>
+
+  <rect class="box" x="40" y="70" width="200" height="110"/>
+  <text x="50" y="90" class="title">Inputs</text>
+  <text x="50" y="110">Mood (Status)</text>
+  <text x="50" y="130">Idle timers & jiggling</text>
+  <text x="50" y="150">Notif/Clock state</text>
+
+  <rect class="box" x="290" y="70" width="230" height="160"/>
+  <text x="300" y="90" class="title">Display (RoboEyes)</text>
+  <text x="300" y="110">update() @ ~33 Hz</text>
+  <text x="300" y="130">Blink/autoblink</text>
+  <text x="300" y="150">Gaze/idle wander</text>
+  <text x="300" y="170">Mood→eye shape</text>
+
+  <rect class="box" x="560" y="70" width="210" height="160"/>
+  <text x="570" y="90" class="title">Voice (Audio)</text>
+  <text x="570" y="110">update() mixer</text>
+  <text x="570" y="130">SFX + sequences</text>
+  <text x="570" y="150">Mic (optional)</text>
+
+  <rect class="box" x="140" y="270" width="630" height="200"/>
+  <text x="150" y="290" class="title">UI Render (~20 Hz)</text>
+  <text x="150" y="310">1. Clear display</text>
+  <text x="150" y="330">2. Draw Eyes (Display sector)</text>
+  <text x="150" y="350">3. Draw status bar</text>
+  <text x="150" y="370">4. Draw clock/notification face</text>
+  <text x="150" y="390">5. Draw toast overlay (typewriter/scatter)</text>
+
+  <path class="arrow" d="M240,125 C260,125 270,125 290,125"/>
+  <path class="arrow" d="M520,125 C540,125 550,125 560,125"/>
+  <path class="arrow" d="M405,230 C405,250 405,260 405,270"/>
+  <path class="arrow" d="M665,230 C665,250 665,260 665,270"/>
+
+  <text x="40" y="500" fill="#666">Timing: Display ~33 Hz (RoboEyes), UI ~20 Hz, Voice mixer runs every loop</text>
+</svg>
