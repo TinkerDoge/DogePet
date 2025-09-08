@@ -30,6 +30,8 @@ typedef short int16_t;
 #include <FS.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SH110X.h>
+#include <TFT_eSPI.h>
+#include <lvgl.h>
 #include <Adafruit_NeoPixel.h>
 #include <ChronosESP32.h>
 
@@ -53,6 +55,10 @@ typedef short int16_t;
 // Forward-declare enums to avoid Arduino prototype generation issues
 enum FaceMode : uint8_t;
 enum MoodState : uint8_t;
+// Enable new TFT+LVGL face rendering path for FACE_EYES while we keep OLED for other faces
+#ifndef USE_TFT_LVGL
+#define USE_TFT_LVGL 1
+#endif
 // === Toast overlay (non-blocking notifications) ===
 // Fixed-size buffers for lightweight typewriter/scatter overlay
 char  toastText[500];      // visible portion (typewriter)
@@ -174,6 +180,144 @@ Adafruit_NeoPixel strip = Adafruit_NeoPixel(1, LED_PIN, NEO_GRB + NEO_KHZ800);
 
 // OLED Display configuration moved to config.h
 Adafruit_SH1106G display(SCREEN_W, SCREEN_H, &Wire, OLED_RESET); // Must exist BEFORE RoboEyes include
+
+// =============================================================================
+// TFT_eSPI + LVGL (for TFT LCD rendering of a simple face)
+// =============================================================================
+// Notes:
+// - user_setup.h should already be configured for your TFT
+// - SCREEN_W / SCREEN_H should match the TFT resolution in config.h
+// - We keep the OLED object above for now to avoid widespread refactors; we won’t use it for FACE_EYES.
+
+static TFT_eSPI tft = TFT_eSPI();
+static lv_disp_draw_buf_t lvgl_draw_buf;
+// Single line buffer tile (taller = faster, bigger RAM). 20 rows is a safe default for ESP32-S3.
+static lv_color_t lvgl_buf1[SCREEN_W * 20];
+static lv_disp_drv_t lvgl_disp_drv;
+
+// Simple face widgets
+static lv_obj_t* face_eyeL = nullptr;
+static lv_obj_t* face_eyeR = nullptr;
+static lv_obj_t* face_pupilL = nullptr;
+static lv_obj_t* face_pupilR = nullptr;
+static lv_obj_t* face_eyelidL = nullptr;
+static lv_obj_t* face_eyelidR = nullptr;
+static lv_timer_t* face_blink_timer = nullptr;
+
+static void lvgl_tft_flush(lv_disp_drv_t* drv, const lv_area_t* area, lv_color_t* color_p) {
+  uint32_t w = (area->x2 - area->x1 + 1);
+  uint32_t h = (area->y2 - area->y1 + 1);
+  tft.startWrite();
+  tft.setAddrWindow(area->x1, area->y1, w, h);
+  // lv_color_t is 16-bit in default LVGL config for Arduino; push as RGB565
+  tft.pushPixels(reinterpret_cast<uint16_t*>(color_p), w * h);
+  tft.endWrite();
+  lv_disp_flush_ready(drv);
+}
+
+static void face_do_blink(lv_obj_t* eyelid) {
+  // Close then open via two chained animations on height
+  int32_t eyeH = lv_obj_get_height(lv_obj_get_parent(eyelid));
+
+  static lv_anim_t a_close;
+  lv_anim_init(&a_close);
+  lv_anim_set_var(&a_close, eyelid);
+  lv_anim_set_values(&a_close, 0, eyeH);
+  lv_anim_set_time(&a_close, 90);
+  lv_anim_set_exec_cb(&a_close, [](void* obj, int32_t v){ lv_obj_set_height(static_cast<lv_obj_t*>(obj), v); });
+
+  static lv_anim_t a_open;
+  lv_anim_init(&a_open);
+  lv_anim_set_var(&a_open, eyelid);
+  lv_anim_set_values(&a_open, eyeH, 0);
+  lv_anim_set_time(&a_open, 120);
+  lv_anim_set_delay(&a_open, 25);
+  lv_anim_set_exec_cb(&a_open, [](void* obj, int32_t v){ lv_obj_set_height(static_cast<lv_obj_t*>(obj), v); });
+
+  // Start close; schedule open when close finishes
+  lv_anim_set_ready_cb(&a_close, [](lv_anim_t* /*a*/){ lv_anim_start(&a_open); });
+  lv_anim_start(&a_close);
+}
+
+static void face_blink_cb(lv_timer_t* t) {
+  (void)t;
+  // Blink both eyes
+  if (face_eyelidL && face_eyelidR) {
+    face_do_blink(face_eyelidL);
+    face_do_blink(face_eyelidR);
+  }
+  // Jitter timer period for a more natural blink pattern
+  uint32_t next = 1500 + (esp_random() % 2500); // 1.5s – 4s
+  lv_timer_set_period(face_blink_timer, next);
+}
+
+static void lvgl_init_and_make_face() {
+  // Init TFT
+  tft.init();
+  tft.setRotation(1); // Adjust if your display orientation differs
+  tft.fillScreen(TFT_BLACK);
+
+  // Init LVGL
+  lv_init();
+  lv_disp_draw_buf_init(&lvgl_draw_buf, lvgl_buf1, nullptr, SCREEN_W * 20);
+
+  lv_disp_drv_init(&lvgl_disp_drv);
+  lvgl_disp_drv.hor_res = SCREEN_W;
+  lvgl_disp_drv.ver_res = SCREEN_H;
+  lvgl_disp_drv.flush_cb = lvgl_tft_flush;
+  lvgl_disp_drv.draw_buf = &lvgl_draw_buf;
+  lv_disp_t* disp = lv_disp_drv_register(&lvgl_disp_drv);
+  (void)disp;
+
+  // Build a simple face: two white eyes with black pupils and a blink eyelid
+  lv_obj_t* root = lv_scr_act();
+  lv_obj_set_style_bg_color(root, lv_color_black(), 0);
+
+  int eyeW = SCREEN_W / 3;
+  int eyeH = SCREEN_H / 2;
+  int margin = SCREEN_W / 12;
+  int centerY = (SCREEN_H - eyeH) / 2;
+
+  auto make_eye = [&](bool left){
+    lv_obj_t* eye = lv_obj_create(root);
+    lv_obj_remove_style_all(eye);
+    lv_obj_set_size(eye, eyeW, eyeH);
+    lv_obj_set_style_bg_color(eye, lv_color_white(), 0);
+    lv_obj_set_style_bg_opa(eye, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(eye, eyeW/2, 0);
+    lv_obj_set_style_border_width(eye, 4, 0);
+    lv_obj_set_style_border_color(eye, lv_color_hex(0xCCCCCC), 0);
+    lv_obj_set_pos(eye, left ? margin : (SCREEN_W - margin - eyeW), centerY);
+
+    // Pupil
+    lv_obj_t* pupil = lv_obj_create(eye);
+    lv_obj_remove_style_all(pupil);
+    int pupilW = eyeW / 3; int pupilH = eyeH / 3;
+    lv_obj_set_size(pupil, pupilW, pupilH);
+    lv_obj_center(pupil);
+    lv_obj_set_style_bg_color(pupil, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(pupil, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(pupil, pupilW/2, 0);
+
+    // Eyelid (covers from top when blinking)
+    lv_obj_t* lid = lv_obj_create(eye);
+    lv_obj_remove_style_all(lid);
+    lv_obj_set_size(lid, eyeW, 0);
+    lv_obj_align(lid, LV_ALIGN_TOP_MID, 0, 0);
+    lv_obj_set_style_bg_color(lid, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(lid, LV_OPA_COVER, 0);
+
+    if (left) { face_eyeL = eye; face_pupilL = pupil; face_eyelidL = lid; }
+    else { face_eyeR = eye; face_pupilR = pupil; face_eyelidR = lid; }
+  };
+
+  make_eye(true);
+  make_eye(false);
+
+  // Blink timer with initial randomized period
+  uint32_t first = 1500 + (esp_random() % 2000);
+  face_blink_timer = lv_timer_create(face_blink_cb, first, nullptr);
+}
 
 // Custom fonts generated by tools/font_to_header.py
 // Time (HH:MM:SS)
@@ -997,6 +1141,11 @@ void setup() {
   display.setCursor(0,0); display.println("PetBot booting...");
   display.display();
 
+#if USE_TFT_LVGL
+  // Initialize LVGL + TFT simple face
+  lvgl_init_and_make_face();
+#endif
+
   // Custom UTF-8 font is header-only; no additional init required
   // I2S Audio init
   Audio::begin(I2S_BCLK, I2S_LRC, I2S_DO, AUDIO_SAMPLE_RATE);
@@ -1167,6 +1316,13 @@ void loop() {
   // Get current time once for the entire loop
   uint32_t currentMs = millis();
 
+#if USE_TFT_LVGL
+  // Feed LVGL tick and handler for smooth animations
+  static uint32_t lastLvTick = currentMs;
+  uint32_t dt = currentMs - lastLvTick;
+  if (dt > 0) { lv_tick_inc(dt); lastLvTick = currentMs; }
+#endif
+
   // BLE
   if (bleEnabled) chrono.loop();
 
@@ -1242,6 +1398,13 @@ void loop() {
   // Draw active face with throttled updates
   switch (mode) {
     case FACE_EYES:
+    {
+#if USE_TFT_LVGL
+      // Use LVGL on TFT for the eyes face
+      lv_timer_handler();
+      // Skip OLED drawing while in LVGL mode
+      break;
+#else
       // Throttle RoboEyes updates for better performance
       if (currentMs - lastRoboEyesUpdateMs >= ROBOEYES_UPDATE_MS) {
         // Keep eyes fully animated every update; toast will overlay after
@@ -1334,7 +1497,9 @@ void loop() {
         }
         lastDisplayUpdateMs = currentMs;
       }
-      break;
+  break;
+#endif
+    }
 
     case FACE_CLOCK:
       // Throttle clock display updates
@@ -1353,16 +1518,20 @@ void loop() {
   }
 
   // Final overlay and single flush when a toast is visible (wins over any prior repaint)
-  if (toastVisible) {
-    // Ensure overlay wins and only we flush
-    drawToastIfAny(display);
-    display.display();
-    displayNeedsUpdate = false;
-    lastDisplayUpdateMs = currentMs;
-  } else {
-    // Restore normal eyes flushing/viewport when no toast
-    gEyesAutoFlush = true;
-    gEyesViewportYMax = 0;
+  // Skip when using LVGL for FACE_EYES
+#if USE_TFT_LVGL
+  if (!(mode == FACE_EYES))
+#endif
+  {
+    if (toastVisible) {
+      drawToastIfAny(display);
+      display.display();
+      displayNeedsUpdate = false;
+      lastDisplayUpdateMs = currentMs;
+    } else {
+      gEyesAutoFlush = true;
+      gEyesViewportYMax = 0;
+    }
   }
 
   // small pacing to avoid excessive I2C spam on non-eyes faces

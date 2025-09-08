@@ -14,18 +14,30 @@ typedef short int16_t;
 #endif
 
 // === Hardware pins & display (centralized) ===
-static constexpr int      I2C_SDA        = 9;
-static constexpr int      I2C_SCL        = 8;
-static constexpr int      TOUCH_PIN      = 13;
-static constexpr int      FUNC_BTN       = 1;
-static constexpr int      I2S_LRC        = 10;  // WS/LRCLK
-static constexpr int      I2S_BCLK       = 11;  // BCLK
-static constexpr int      I2S_DO         = 12;  // I2S data out
-static constexpr int      I2S_DI         = 2;   // (MIC)
+static constexpr int      I2C_SDA        = 21;
+static constexpr int      I2C_SCL        = 18;
+static constexpr int      TOUCH_PIN      = 35;
+static constexpr int      FUNC_BTN       = 41;
+static constexpr int      I2S_LRC        = 16;  // WS/LRCLK
+static constexpr int      I2S_BCLK       = 17;  // BCLK
+static constexpr int      I2S_DO         = 33;  // I2S data out
+static constexpr int      I2S_DI         = -1;   // (MIC)
 static constexpr int      LED_PIN        = 48;  // WS2812
 static constexpr uint8_t  LED_BRIGHTNESS = 60;
-static constexpr int      VBAT_PIN       = 7;
+static constexpr int      VBAT_PIN       = 15;
 
+static constexpr int      SD_CS         = 8;
+static constexpr int      TFT_CS        = 5;
+static constexpr int      TFT_DC        = 1;
+static constexpr int      TFT_RST       = -1;  // Or set to -1 and connect to Arduino RESET pin
+static constexpr int      TFT_BL        = 6;  // TFT backlight pin
+
+static constexpr int      SPI_MOSI      = 2;
+static constexpr int      SPI_SCK       = 3;
+static constexpr int      SPI_MISO      = 4;
+
+static constexpr int      BUTTON_B      = 40;  // Active LOW
+static constexpr int      BUTTON_C      = 39;  // Active LOW    
 // Display constants
 static constexpr int      SCREEN_W       = 128;
 static constexpr int      SCREEN_H       = 64;
