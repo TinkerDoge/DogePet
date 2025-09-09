@@ -4,14 +4,7 @@
 
 #include <Arduino.h>
 #include <stdint.h>
-#include <Adafruit_SH110X.h>
 #include "config.h"
-
-// Function to draw the notification face
-void drawNotif(Adafruit_SH1106G& display);
-
-// Toast overlay function
-void drawToastIfAny(Adafruit_SH1106G& display);
 
 // External variables needed by notification (will be accessed from main)
 extern char lastNotifTitle[64];

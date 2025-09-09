@@ -72,9 +72,8 @@
 
 // For ST7735, ST7789 and ILI9341 ONLY, define the colour order IF the blue and red are swapped on your display
 // Try ONE option at a time to find the correct colour order for your display
-
-// #define TFT_RGB_ORDER TFT_RGB  // Colour order Red-Green-Blue
-#define TFT_RGB_ORDER TFT_BGR  // Colour order Blue-Green-Red
+#define TFT_RGB_ORDER TFT_RGB  // Colour order Red-Green-Blue
+//#define TFT_RGB_ORDER TFT_BGR  // Colour order Blue-Green-Red
 
 // For M5Stack ESP32 module with integrated ILI9341 display ONLY, remove // in line below
 
@@ -113,8 +112,8 @@
 // If colours are inverted (white shows as black) then uncomment one of the next
 // 2 lines try both options, one of the options should correct the inversion.
 
-//#define TFT_INVERSION_ON
- #define TFT_INVERSION_OFF
+#define TFT_INVERSION_ON
+//#define TFT_INVERSION_OFF
 
 
 // ##################################################################################
@@ -167,12 +166,13 @@
 // ###### EDIT THE PIN NUMBERS IN THE LINES FOLLOWING TO SUIT YOUR ESP8266 SETUP ######
 
 // For NodeMCU - use pin numbers in the form PIN_Dx where Dx is the NodeMCU pin designation
-#define TFT_MISO  4  // Automatically assigned with ESP8266 if not defined
+#define TFT_MISO  -1  // Automatically assigned with ESP8266 if not defined
 #define TFT_MOSI  2  // Automatically assigned with ESP8266 if not defined
 #define TFT_SCLK  3  // Automatically assigned with ESP8266 if not defined
 
-#define TFT_CS    5  // Chip select control pin D8
-#define TFT_DC    7  // Data Command control pin
+// No CS pin used (TFT CS must be hard-wired active LOW on the PCB)
+#define TFT_CS   -1   // Not connected / not used
+#define TFT_DC    7  // Data Command control pin (match board wiring)
 #define TFT_RST   -1  // Reset pin (could connect to NodeMCU RST, see next line)
 //#define TFT_RST  -1     // Set TFT_RST to -1 if the display RESET is connected to NodeMCU RST or 3.3V
 
@@ -360,20 +360,20 @@
 // #define SPI_FREQUENCY  10000000
 // #define SPI_FREQUENCY  20000000
 // #define SPI_FREQUENCY  27000000
-#define SPI_FREQUENCY  40000000
+// #define SPI_FREQUENCY  27000000
 // #define SPI_FREQUENCY  55000000 // STM32 SPI1 only (SPI2 maximum is 27MHz)
-//#define SPI_FREQUENCY  80000000
+#define SPI_FREQUENCY  80000000
 
 // Optional reduced SPI frequency for reading TFT
 #define SPI_READ_FREQUENCY  20000000
 
 // The XPT2046 requires a lower SPI clock rate of 2.5MHz so we define that here:
-#define SPI_TOUCH_FREQUENCY  2500000
+//#define SPI_TOUCH_FREQUENCY  2500000
 
 // The ESP32 has 2 free SPI ports i.e. VSPI and HSPI, the VSPI is the default.
 // If the VSPI port is in use and pins are not accessible (e.g. TTGO T-Beam)
 // then uncomment the following line:
-#define USE_HSPI_PORT
+ #define USE_HSPI_PORT
 
 // Comment out the following #define if "SPI Transactions" do not need to be
 // supported. When commented out the code size will be smaller and sketches will
@@ -385,4 +385,4 @@
 // Transactions are automatically enabled by the library for an ESP32 (to use HAL mutex)
 // so changing it here has no effect
 
-#define SUPPORT_TRANSACTIONS
+//#define SUPPORT_TRANSACTIONS

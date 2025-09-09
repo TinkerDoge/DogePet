@@ -4,12 +4,11 @@
 
 #include <Arduino.h>
 #include <stdint.h>
-#include <Adafruit_SH110X.h>
 #include <ChronosESP32.h>
 #include "config.h"
 
-// Function to draw the clock face
-void drawClock(Adafruit_SH1106G& display, ChronosESP32& chrono);
+// Function to draw the clock face (OLED removed – to be reimplemented in LVGL later)
+// void drawClock(Adafruit_SH1106G& display, ChronosESP32& chrono);
 
 // Battery reading functions used by clock
 float readVBATVolts();
