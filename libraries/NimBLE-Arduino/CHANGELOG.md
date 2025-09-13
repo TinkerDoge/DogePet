@@ -1,20 +1,6 @@
 # Changelog
 All notable changes to this project will be documented in this file.
 
-## [2.3.6] 2025-09-05
-
-## Fixed
-- NimBLEAdvertisedDevice::isConnectable returning incorrect result.
-- Extended advertisements not reporting full data.
-
-## Added
-- Support up to 1650 bytes of advertisement with extended advertising.
-
-## [2.3.5] 2025-09-02
-
-## Fixed
-- esp32c3/s3 max connections not being properly applied.
-
 ## [2.3.4] 2025-08-10
 
 ## Fixed
