@@ -14,17 +14,31 @@ typedef short int16_t;
 #endif
 
 // === Hardware pins & display (centralized) ===
-static constexpr int      I2C_SDA        = 9;
-static constexpr int      I2C_SCL        = 8;
-static constexpr int      TOUCH_PIN      = 13;
-static constexpr int      FUNC_BTN       = 1;
-static constexpr int      I2S_LRC        = 10;  // WS/LRCLK
-static constexpr int      I2S_BCLK       = 11;  // BCLK
-static constexpr int      I2S_DO         = 12;  // I2S data out
-static constexpr int      I2S_DI         = 2;   // (MIC)
+static constexpr int      I2C_SDA        = 6;
+static constexpr int      I2C_SCL        = 5;
+static constexpr int      TOUCH_DOWN     = 35; // Active HIGH (LOW idle, HIGH when touched)
+static constexpr int      TOUCH_UP       = 39;  // Active HIGH (LOW idle, HIGH when touched)
+static constexpr int      FUNC_BTN       = 41; // Active LOW (pull-up, LOW when pressed)
+static constexpr int      I2S_LRC        = 16;  // WS/LRCLK
+static constexpr int      I2S_BCLK       = 17;  // BCLK
+static constexpr int      I2S_DO         = 33;   // I2S data out (changed from GPIO34 to GPIO2)
+static constexpr int      I2S_DI         = 14;  // MIC input (changed from GPIO33 to GPIO1)
+//static constexpr int      I2S_DI_LEFT         = 11;   // MIC input (changed from GPIO33 to GPIO1)
 static constexpr int      LED_PIN        = 48;  // WS2812
 static constexpr uint8_t  LED_BRIGHTNESS = 60;
-static constexpr int      VBAT_PIN       = 7;
+static constexpr int      VBAT_PIN       = 15;
+
+//static constexpr int      SD_CS         = 8;
+//static constexpr int      TFT_CS        = 5;
+//static constexpr int      TFT_DC        = 1;
+//static constexpr int      TFT_RST       = -1;  // Or set to -1 and connect to Arduino RESET pin
+//static constexpr int      TFT_BL        = 6;  // TFT backlight pin
+
+static constexpr int      SPI_MOSI      = 2;
+static constexpr int      SPI_SCK       = 3;
+static constexpr int      SPI_MISO      = 4;
+
+//static constexpr int      BUTTON_B      = 40;  // Active HIGH
 
 // Display constants
 static constexpr int      SCREEN_W       = 128;
@@ -101,6 +115,12 @@ static constexpr float     TAP_SPIKE_DPS      = 140.0f;  // quick rotation spike
 static constexpr uint32_t  TAP_MIN_GAP_MS     = 600;     // min time between blinks
 static constexpr uint32_t  TAP_COOLDOWN_MS    = 200;     // cooldown after tap detection
 
+// === Touch Sensor Tap Detection ===
+// Debounce and timing for capacitive touch sensors (TPS223)
+static constexpr uint16_t  TOUCH_DEBOUNCE_MS       = 25;   // debounce time (increased from 12ms for stability)
+static constexpr uint16_t  TOUCH_DOUBLE_TAP_WINDOW = 500;  // max time between taps for double-tap (ms)
+static constexpr uint16_t  TOUCH_TRIPLE_TAP_WINDOW = 900;  // max time between taps for triple-tap (ms)
+
 // === Debug System Constants ===
 static constexpr float     ACCEL_DELTA        = 0.05f;   // g-units
 static constexpr float     GYRO_DELTA         = 5.0f;    // deg/s
@@ -120,12 +140,12 @@ static constexpr uint32_t  AUDIO_SAMPLE_RATE   = 22050;
 static constexpr uint8_t   AUDIO_DEFAULT_VOLUME = 50;  // 0..255
 
 // === Microphone (I2S Input) Configuration ===
-// Note: Microphone sensitivity is boosted with 64x gain in audio.cpp
+// Note: Microphone sensitivity is boosted with 8x gain in audio.cpp (reduced from 64x)
 static constexpr bool      ENABLE_MIC_LISTENING = true;  // Enable microphone feature
-static constexpr uint32_t  MIC_SAMPLE_RATE      = 16000; // 16kHz for voice/noise detection
+static constexpr uint32_t  MIC_SAMPLE_RATE      = 22050; // Match audio output rate to avoid conflicts
 static constexpr uint16_t  MIC_BUFFER_SIZE      = 1024;  // Buffer size for audio samples (larger = better averaging)
-static constexpr float     MIC_NOISE_THRESHOLD  = 0.4f; // RMS threshold for noise detection (lower = more sensitive)
-static constexpr uint32_t  MIC_CHECK_INTERVAL   = 500;   // Check every 500ms
+static constexpr float     MIC_NOISE_THRESHOLD  = 0.1f; // Reduced from 0.4f (with lower gain, threshold needs adjustment)
+static constexpr uint32_t  MIC_CHECK_INTERVAL   = 250;   // Check every 250ms (more responsive)
 static constexpr uint32_t  MIC_COOLDOWN_MS      = 2000;  // Minimum time between reactions
 static constexpr uint32_t  MIC_FEEDBACK_COOLDOWN_MS = 500; // Cooldown after audio playback
 // Initial motion/emotion state defaults

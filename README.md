@@ -64,22 +64,53 @@ static constexpr uint32_t  WIFI_CONNECT_TIMEOUT_MS = 30000;
 ```
 
 ## Controls & UX
-- Touch sensor (TPS223): cycle faces/modes
-- FUNC_BTN (active-LOW): short press = action, hold 2s = toggle BLE; double-press = toggle WiFi
-- WS2812 LED: shows BLE/WiFi/mood status
 
-Faces / Modes
-- Eyes (default): RoboEyes animated, idle wander, blink
-- Clock: time/date from BLE ChronosESP32 or local RTC
-- Notifications: show last BLE notification with badge for unread
+### Hardware Controls
+- **FUNC_BTN (GPIO 41, active-LOW)**
+  - Single press: Start device (hardware function)
+  - Double press: Turn device off (hardware function)
+  - Hold + TOUCH_DOWN: Enable/Disable BLE
+  - Hold + TOUCH_UP: Enable/Disable WiFi
+
+### Touch Controls
+- **TOUCH_DOWN (GPIO 35, active-HIGH)**
+  - Double tap: Cycle through faces/modes (Eyes → Clock → Notifications)
+  - Triple tap: WiFi configuration portal
+
+- **TOUCH_UP (GPIO 39, active-HIGH)**
+  - Double tap: Reserved for future function
+  - Triple tap: Toggle Silent/Chatty mode
+
+- **TOUCH_UP + TOUCH_DOWN (both held)**
+  - Squeeze detection: Reserved for future function
+
+### Status LED (WS2812)
+- Blue: BLE enabled
+- Shows connection/mood status
+
+### Faces / Modes
+- **Eyes** (default): RoboEyes animated, idle wander, blink
+- **Clock**: Time/date from BLE ChronosESP32 or local RTC
+- **Notifications**: Show last BLE notification with badge for unread
 
 ## Wiring (summary)
-- OLED SDA/SCL -> pins 9 / 8 (I²C, SH1106 @ 0x3C)
-- TPS223 touch -> pin 13 (HIGH on touch)
-- FUNC_BTN -> pin 1 (active-LOW)
-- WS2812 -> pin 48 (single NeoPixel, 5V with 330Ω inline)
-- MPU6050 -> shared I²C (pins 9 / 8)
-- I²S DAC (planned) -> BCLK=11, LRC=10, DIN=12
+- **I²C Bus (shared)**
+  - OLED SH1106: SDA → GPIO 6, SCL → GPIO 5 (0x3C address)
+  - MPU6050: SDA → GPIO 6, SCL → GPIO 5
+- **Touch Sensors (TPS223)**
+  - TOUCH_DOWN → GPIO 35 (active-HIGH: LOW idle, HIGH when touched)
+  - TOUCH_UP → GPIO 39 (active-HIGH: LOW idle, HIGH when touched)
+- **Buttons**
+  - FUNC_BTN → GPIO 41 (active-LOW, internal pull-up)
+- **Status LED**
+  - WS2812 → GPIO 48 (single NeoPixel, 5V with 330Ω inline resistor)
+- **I²S Audio**
+  - BCLK → GPIO 17
+  - LRC (WS/LRCLK) → GPIO 16
+  - DO (DAC out) → GPIO 33
+  - DI (Mic in) → GPIO 14
+- **Battery Monitor**
+  - VBAT → GPIO 15 (analog input with voltage divider)
 
 ## Required libraries
 - FluxGarage_RoboEyes

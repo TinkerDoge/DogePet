@@ -46,6 +46,18 @@ typedef short int16_t;
 #include "notification.h"
 #include "ai_companion.h"
 
+// =============================================================================
+// FORWARD DECLARATIONS (must come before Arduino auto-generated prototypes)
+// =============================================================================
+// Input tap state structure (defined here to prevent prototype issues)
+struct TapState {
+  uint8_t   pin;
+  bool      lastRaw;
+  bool      stable;
+  uint32_t  lastChangeMs;
+  uint8_t   tapCount;
+  uint32_t  windowStartMs;
+};
 
 // =============================================================================
 // GLOBAL VARIABLES & CONSTANTS
@@ -280,12 +292,14 @@ float    vbatVolts = 0.0f;
 int      vbatPercent = -1; // -1 when unknown
 bool     batteryCharging = false; // true when VBAT sustained high
 uint8_t  vbatChargeCount = 0;     // consecutive high-read counter
+
 // Chatty/silent state
 bool            silentMode = false;
 uint8_t         talkativeLevel = BOT_TALKATIVE_LEVEL;   // runtime talk level (0..5)
 uint8_t         savedTalkativeLevel = BOT_TALKATIVE_LEVEL; // last non-zero level
 // Touch edge tracker to improve responsiveness on non-eyes faces
 static uint32_t lastTouchEdgeMs = 0;
+bool            touchSqueezeActive = false;  // true when both touch pads are held
 
 // === Gemini AI Integration === (moved to ai_companion module)
 // AI state variables now managed by AICompanion namespace
@@ -447,99 +461,197 @@ static String zeroPad2(int v){ char b[3]; snprintf(b, sizeof(b), "%02d", v); ret
 // =============================================================================
 // INPUT HANDLING & USER INTERFACE
 // =============================================================================
-static bool edgeRising(uint8_t pin, bool activeHigh=true, uint16_t debounceMs=30) {
-  static uint32_t t0=0; static bool lastRaw=false, stable=false;
-  uint32_t currentMs = millis();  // Cache current time to avoid multiple millis() calls
-  bool raw = activeHigh ? (digitalRead(pin)==HIGH) : (digitalRead(pin)==LOW);
-  if (raw != lastRaw) { lastRaw = raw; t0 = currentMs; }
-  if (currentMs - t0 > debounceMs) {
-    if (raw != stable) { bool old=stable; stable=raw; return (stable && !old); }
+
+static TapState* getTapState(uint8_t pin) {
+  static TapState states[] = {
+    {TOUCH_DOWN, false, false, 0, 0, 0},
+    {TOUCH_UP,   false, false, 0, 0, 0},
+    {FUNC_BTN,   false, false, 0, 0, 0},
+    {0xFF,       false, false, 0, 0, 0},
+  };
+  for (auto &s : states) {
+    if (s.pin == pin) return &s;
+    if (s.pin == 0xFF) { s.pin = pin; return &s; }
   }
-  return false;
+  return &states[0];
 }
 
-// Detect triple-tap on a digital input (rising edges) within a time window
-static bool tripleTap(uint8_t pin, bool activeHigh=true, uint16_t debounceMs=12, uint16_t windowMs=650) {
-  static uint8_t  tapCount = 0;
-  static uint32_t windowStart = 0;
-  if (edgeRising(pin, activeHigh, debounceMs)) {
-    uint32_t now = millis();
-    lastTouchEdgeMs = now;
-    if (tapCount == 0 || (now - windowStart) > windowMs) {
-      tapCount = 1; windowStart = now; return false;
+static bool detectTapSequence(uint8_t pin, bool activeHigh, uint8_t requiredTaps,
+                              uint16_t debounceMs, uint16_t windowMs) {
+  TapState* state = getTapState(pin);
+  uint32_t now = millis();
+  bool raw = activeHigh ? (digitalRead(pin) == HIGH) : (digitalRead(pin) == LOW);
+
+  if (state->lastChangeMs == 0) {
+    state->lastRaw = raw;
+    state->stable = raw;
+    state->lastChangeMs = now;
+    state->tapCount = 0;
+    state->windowStartMs = 0;
+  }
+
+  if (raw != state->lastRaw) {
+    state->lastRaw = raw;
+    state->lastChangeMs = now;
+  }
+
+  if (now - state->lastChangeMs >= debounceMs) {
+    if (raw != state->stable) {
+      bool previous = state->stable;
+      state->stable = raw;
+      if (state->stable && !previous) {
+        if (pin == TOUCH_DOWN || pin == TOUCH_UP) {
+          lastTouchEdgeMs = now;
+        }
+        if (state->tapCount == 0 || (now - state->windowStartMs) > windowMs) {
+          state->tapCount = 1;
+          state->windowStartMs = now;
+        } else {
+          state->tapCount++;
+        }
+        if (state->tapCount >= requiredTaps) {
+          state->tapCount = 0;
+          return true;
+        }
+      }
     }
-    tapCount++;
-    if (tapCount >= 3) { tapCount = 0; return true; }
   }
-  // expire window
-  if (tapCount > 0 && (millis() - windowStart) > windowMs) tapCount = 0;
+
+  if (state->tapCount > 0 && (now - state->windowStartMs) > windowMs) {
+    state->tapCount = 0;
+  }
+
   return false;
 }
 
-// FUNC button controls (non-blocking)
-enum BleUiState { BLEUI_IDLE, BLEUI_PROMPT, BLEUI_ENABLING, BLEUI_DISABLING, BLEUI_DONE };
-BleUiState bleUi = BLEUI_IDLE;
-uint32_t   bleUiT0 = 0;
-uint32_t   btnDownT0 = 0;
+static inline bool touchDownDoubleTap(uint16_t windowMs=TOUCH_DOUBLE_TAP_WINDOW) {
+  return detectTapSequence(TOUCH_DOWN, true, 2, TOUCH_DEBOUNCE_MS, windowMs);
+}
+
+static inline bool touchDownTripleTap(uint16_t windowMs=TOUCH_TRIPLE_TAP_WINDOW) {
+  return detectTapSequence(TOUCH_DOWN, true, 3, TOUCH_DEBOUNCE_MS, windowMs);
+}
+
+static inline bool touchUpDoubleTap(uint16_t windowMs=TOUCH_DOUBLE_TAP_WINDOW) {
+  return detectTapSequence(TOUCH_UP, true, 2, TOUCH_DEBOUNCE_MS, windowMs);
+}
+
+static inline bool touchUpTripleTap(uint16_t windowMs=TOUCH_TRIPLE_TAP_WINDOW) {
+  return detectTapSequence(TOUCH_UP, true, 3, TOUCH_DEBOUNCE_MS, windowMs);
+}
+
+// Note: FUNC_BTN triple-tap removed - hardware double-press turns device off
+// WiFi config portal moved to TOUCH_UP triple-tap
+
+static void setBleEnabled(bool enable, bool quietUi) {
+  if (enable == bleEnabled) return;
+  if (enable) {
+    bleEnabled = true;
+    chrono.begin();
+    Serial.println("BLE: ENABLING");
+    if (ENABLE_LED_STATUS) {
+      strip.setPixelColor(0, strip.Color(0, 0, 255));
+      strip.show();
+    }
+    if (!quietUi) {
+      showToast("BLE: ENABLED", 1800);
+    }
+    Audio::sfxConfirm();
+  } else {
+    bleEnabled = false;
+    chrono.stop(true);
+    Serial.println("BLE: DISABLING");
+    if (ENABLE_LED_STATUS) {
+      strip.setPixelColor(0, 0);
+      strip.show();
+    }
+    if (!quietUi) {
+      showToast("BLE: DISABLED", 1800);
+    }
+    Audio::sfxError();
+  }
+}
+
+static inline void toggleBle(bool quietUi) {
+  setBleEnabled(!bleEnabled, quietUi);
+}
+
+static void setWifiEnabled(bool enable, bool quietUi) {
+  if (!ENABLE_WIFI || !ENABLE_GEMINI_AI) {
+    if (!quietUi) {
+      showToast("WiFi disabled in config", 2000);
+    }
+    return;
+  }
+
+  if (wifiEnabled == enable) return;
+
+  if (enable) {
+    Serial.println("WiFi: ENABLING");
+    if (!quietUi) {
+      showToast("WiFi: ENABLING", 2000);
+    }
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+
+    uint32_t wifiStart = millis();
+    while (WiFi.status() != WL_CONNECTED && (millis() - wifiStart) < WIFI_CONNECT_TIMEOUT_MS) {
+      delay(500);
+      Serial.print('.');
+    }
+
+    if (WiFi.status() == WL_CONNECTED) {
+      wifiEnabled = true;
+      Serial.println("\nWiFi connected!");
+      Serial.printf("IP Address: %s\n", WiFi.localIP().toString().c_str());
+      if (!quietUi) {
+        showToast("WiFi Connected! 📶", 2200);
+      }
+      if (AICompanion::begin(GEMINI_API_KEY)) {
+        Serial.println("Gemini AI enabled - Send messages with 'AI:', '@doge', or 'DogePet:' prefix");
+        if (!quietUi) {
+          showToast("AI Ready! 🤖✨", 2000);
+        }
+      } else {
+        Serial.printf("Failed to initialize Gemini AI: %s\n", AICompanion::getLastError());
+        if (!quietUi) {
+          showToast("AI Init Failed", 2000);
+        }
+      }
+    } else {
+      wifiEnabled = false;
+      Serial.println("\nWiFi connection failed!");
+      if (!quietUi) {
+        showToast("WiFi Failed 😢", 2500);
+      }
+    }
+  } else {
+    Serial.println("WiFi: DISABLING");
+    WiFi.disconnect(true);
+    wifiEnabled = false;
+    if (!quietUi) {
+      showToast("WiFi: DISABLED", 2000);
+    }
+  }
+  Audio::sfxConfirm();
+}
+
+static inline void toggleWifi(bool quietUi) {
+  setWifiEnabled(!wifiEnabled, quietUi);
+}
+
+// Input control overlays
+static bool controlOverlayActive = false;
+static uint32_t controlOverlayUntilMs = 0;
 bool        wifiEnabled = false;  // Track WiFi state
 // HOLD_TIME_MS comes from config.h
 
 // === AI and Animation functions moved to separate modules ===
 // See ai_companion.cpp and animation_engine.cpp
 
-// Detect double press on FUNC button
-bool detectDoublePress() {
-  static uint32_t lastPressTime = 0;
-  static uint32_t pressCount = 0;
-  static bool wasPressed = false;
-
-  bool isPressed = (digitalRead(FUNC_BTN) == LOW);
-  uint32_t currentTime = millis();
-
-  if (isPressed && !wasPressed) {
-    // Button just pressed
-    if (currentTime - lastPressTime < 500) { // 500ms window for double press
-      pressCount++;
-    } else {
-      pressCount = 1;
-    }
-    lastPressTime = currentTime;
-  }
-
-  wasPressed = isPressed;
-
-  // Check for double press
-  if (pressCount >= 2 && (currentTime - lastPressTime > 100)) {
-    pressCount = 0;
-    return true;
-  }
-
-  return false;
-}
-
-// Detect triple-press on FUNC button to toggle WiFi config portal
-bool detectTriplePressFUNC() {
-  static uint32_t lastPressTime = 0;
-  static uint8_t pressCount = 0;
-  static bool wasPressed = false;
-  const uint32_t windowMs = 900;
-
-  bool isPressed = (digitalRead(FUNC_BTN) == LOW);
-  uint32_t now = millis();
-  if (isPressed && !wasPressed) {
-    if (now - lastPressTime < windowMs) {
-      pressCount++;
-    } else {
-      pressCount = 1;
-    }
-    lastPressTime = now;
-  }
-  wasPressed = isPressed;
-  if (pressCount >= 3 && (now - lastPressTime > 100)) { pressCount = 0; return true; }
-  // expire window
-  if (pressCount > 0 && (now - lastPressTime > windowMs)) pressCount = 0;
-  return false;
-}
+// Placeholder wrappers for future features
+inline bool touchUpDoubleTapPending() { return touchUpDoubleTap(); }
+inline bool touchUpTripleTapPending() { return touchUpTripleTap(); }
 
 // ===== WiFi Config Portal =====
 static void portalHandleRoot() {
@@ -656,142 +768,152 @@ static void stopConfigPortalAndConnect() {
 }
 
 void updateBleToggleUI() {
-  bool btn = (digitalRead(FUNC_BTN)==LOW);
+  const bool funcPressed = (digitalRead(FUNC_BTN) == LOW);
+  const bool touchDownHeld = (digitalRead(TOUCH_DOWN) == HIGH);
+  const bool touchUpHeld = (digitalRead(TOUCH_UP) == HIGH);
+  touchSqueezeActive = touchDownHeld && touchUpHeld;
 
-  // Priority: triple press toggles WiFi config portal
-  if (detectTriplePressFUNC()) {
-    if (!configPortalActive) startConfigPortal();
-    else stopConfigPortalAndConnect();
+  // Note: FUNC triple-press disabled (hardware double-press powers off)
+  // WiFi config portal moved to main loop (TOUCH_DOWN triple-tap)
+
+  enum class HoldAction : uint8_t { None, BleToggle, WifiToggle };
+  enum class OverlayMessage : uint8_t {
+    None,
+    PromptBle,
+    PromptWifi,
+    DoneBleEnabled,
+    DoneBleDisabled,
+    DoneWifiEnabled,
+    DoneWifiDisabled
+  };
+
+  static HoldAction currentAction = HoldAction::None;
+  static uint32_t actionStartMs = 0;
+  static bool actionFired = false;
+  static OverlayMessage overlayMessage = OverlayMessage::None;
+  static bool waitForRelease = false;
+
+  if (!funcPressed) {
+    if (waitForRelease || currentAction != HoldAction::None) {
+      waitForRelease = false;
+      currentAction = HoldAction::None;
+      actionFired = false;
+      overlayMessage = OverlayMessage::None;
+      controlOverlayActive = false;
+    }
+  }
+
+  HoldAction desiredAction = HoldAction::None;
+  if (!waitForRelease && funcPressed) {
+    if (!touchSqueezeActive) {
+      if (touchUpHeld && !touchDownHeld) {
+        desiredAction = HoldAction::WifiToggle;
+      } else if (touchDownHeld && !touchUpHeld) {
+        desiredAction = HoldAction::BleToggle;
+      }
+      // else: FUNC pressed alone -> no action (prevents false trigger)
+    }
+  }
+
+  if (!waitForRelease && desiredAction != currentAction) {
+    currentAction = desiredAction;
+    actionStartMs = millis();
+    actionFired = false;
+    if (mode != FACE_EYES) {
+      overlayMessage = (currentAction == HoldAction::BleToggle)
+                        ? OverlayMessage::PromptBle
+                        : (currentAction == HoldAction::WifiToggle ? OverlayMessage::PromptWifi : OverlayMessage::None);
+      controlOverlayActive = (overlayMessage != OverlayMessage::None);
+    }
+  }
+
+  if (currentAction == HoldAction::None) {
+    if (!funcPressed) {
+      controlOverlayActive = false;
+      overlayMessage = OverlayMessage::None;
+    }
     return;
   }
 
-  // Check for double press (WiFi toggle) first
-  if (detectDoublePress()) {
-    if (ENABLE_WIFI && ENABLE_GEMINI_AI) {
-      wifiEnabled = !wifiEnabled;
-      if (wifiEnabled) {
-        Serial.println("WiFi: ENABLING");
-        showToast("WiFi: ENABLING", 2000);
-        WiFi.mode(WIFI_STA);
-        WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-
-        // Wait for connection with timeout
-        unsigned long wifiStartTime = millis();
-        while (WiFi.status() != WL_CONNECTED && (millis() - wifiStartTime) < WIFI_CONNECT_TIMEOUT_MS) {
-          delay(500);
-          Serial.print(".");
-        }
-
-        if (WiFi.status() == WL_CONNECTED) {
-          Serial.println("\nWiFi connected!");
-          Serial.printf("IP Address: %s\n", WiFi.localIP().toString().c_str());
-          showToast("WiFi Connected! 📶", 2000);
-
-          // Re-initialize AI if WiFi is now available
-          if (AICompanion::begin(GEMINI_API_KEY)) {
-            Serial.println("Gemini AI enabled - Send messages with 'AI:', '@doge', or 'DogePet:' prefix");
-            showToast("AI Ready! 🤖✨", 2000);
-          }
-        } else {
-          Serial.println("\nWiFi connection failed!");
-          showToast("WiFi Failed 😢", 3000);
-          wifiEnabled = false; // Reset flag on failure
-        }
+  const uint32_t now = millis();
+  if (!actionFired && (now - actionStartMs) >= HOLD_TIME_MS) {
+    const bool quietUi = (mode == FACE_EYES);
+    if (currentAction == HoldAction::BleToggle) {
+      toggleBle(quietUi);
+      if (!quietUi) {
+        overlayMessage = bleEnabled ? OverlayMessage::DoneBleEnabled : OverlayMessage::DoneBleDisabled;
+      }
+      else {
+        overlayMessage = OverlayMessage::None;
+      }
+    } else {
+      toggleWifi(quietUi);
+      if (!quietUi) {
+        overlayMessage = wifiEnabled ? OverlayMessage::DoneWifiEnabled : OverlayMessage::DoneWifiDisabled;
       } else {
-        Serial.println("WiFi: DISABLING");
-        showToast("WiFi: DISABLED", 2000);
-        WiFi.disconnect(true);
-        // AI will be disabled automatically due to no WiFi
+        overlayMessage = OverlayMessage::None;
       }
-      Audio::sfxConfirm();
     }
-    return; // Don't process as BLE toggle
+    actionFired = true;
+    waitForRelease = true;
+    controlOverlayActive = (mode != FACE_EYES) && (overlayMessage != OverlayMessage::None);
+    controlOverlayUntilMs = now + 1200;
   }
 
-  // If the face is active, keep BLE toggle completely minimal: no screen
-  // updates or flashing. We still respect the hold time but only toggle
-  // the internal BLE state and optionally print to Serial.
   if (mode == FACE_EYES) {
-    static bool holding = false;
-    if (btn && !holding) { holding = true; btnDownT0 = millis(); }
-    if (!btn && holding) { holding = false; }
-    if (holding) {
-      uint32_t held = millis() - btnDownT0;
-      if (held >= HOLD_TIME_MS) {
-        // toggle BLE quietly and update status LED
-        if (!bleEnabled) {
-          bleEnabled = true;
-          chrono.begin();
-          Serial.println("BLE: ENABLING");
-          strip.setPixelColor(0, strip.Color(0,0,255));
-          strip.show();
-          Audio::sfxConfirm();
-        } else {
-          bleEnabled = false;
-          chrono.stop(true);
-          Serial.println("BLE: DISABLING");
-          strip.setPixelColor(0, 0);
-          strip.show();
-          Audio::sfxError();
-        }
-        holding = false;
-      }
+    if (actionFired && now > controlOverlayUntilMs) {
+      currentAction = HoldAction::None;
+      actionFired = false;
     }
     return;
   }
 
-  // Non-face modes: show the normal minimal UI to indicate BLE state.
-  switch (bleUi) {
-    case BLEUI_IDLE:
-      if (btn) { btnDownT0 = millis(); bleUi = BLEUI_PROMPT; }
-      break;
-
-    case BLEUI_PROMPT: {
-      // show countdown while held
-      uint32_t held = millis() - btnDownT0;
-      display.clearDisplay();
-      display.setTextColor(SH110X_WHITE); display.setTextSize(1);
-      display.setCursor(0,20); display.println("Hold FUNC_BTN");
-      display.setCursor(0,32); display.println("for BLE toggle");
-      display.setCursor(0,44); display.print("Release in: ");
-      display.print( (HOLD_TIME_MS > held) ? ( (HOLD_TIME_MS - held + 999)/1000 ) : 0 );
-      display.print("s");
-      display.display();
-
-      if (!btn) { bleUi = BLEUI_IDLE; break; }               // released early → cancel
-      if (held >= HOLD_TIME_MS) {
-        if (!bleEnabled) {
-          bleEnabled = true; bleUi = BLEUI_ENABLING;  bleUiT0 = millis(); chrono.begin(); showToast("BLE: ENABLING");Serial.println("BLE: ENABLING");
-          strip.setPixelColor(0, strip.Color(0,0,255)); strip.show();
-          Audio::sfxConfirm();
-        }
-        else {
-          bleEnabled = false; bleUi = BLEUI_DISABLING; bleUiT0 = millis(); chrono.stop(true); showToast("BLE: DISABLING");Serial.println("BLE: DISABLING");
-          strip.setPixelColor(0, 0); strip.show();
-          Audio::sfxError();
-        }
+  if (actionFired) {
+    if (overlayMessage == OverlayMessage::None || now > controlOverlayUntilMs) {
+      controlOverlayActive = false;
+      overlayMessage = OverlayMessage::None;
+      if (!funcPressed) {
+        currentAction = HoldAction::None;
+        actionFired = false;
       }
-    } break;
+      return;
+    }
 
-    case BLEUI_ENABLING:
-    case BLEUI_DISABLING: {
-      display.clearDisplay();
-      display.setTextColor(SH110X_WHITE); display.setTextSize(1);
-      display.setCursor(0,26);
-      display.println(bleUi==BLEUI_ENABLING ? "BLE: ENABLING..." : "BLE: DISABLING...");
-      display.display();
-      if (millis()-bleUiT0 > 900) { bleUi = BLEUI_DONE; bleUiT0 = millis(); }
-    } break;
-
-    case BLEUI_DONE:
-      display.clearDisplay();
-      display.setTextColor(SH110X_WHITE); display.setTextSize(1);
-      display.setCursor(0,26);
-      showToast(bleEnabled ? "BLE: ENABLED" : "BLE: DISABLED");Serial.println(bleEnabled ? "BLE: ENABLED" : "BLE: DISABLED");
-      display.display();
-      if (millis()-bleUiT0 > 900) bleUi = BLEUI_IDLE;
-      break;
+    display.clearDisplay();
+    display.setTextColor(SH110X_WHITE); display.setTextSize(1);
+    display.setCursor(0, 26);
+    switch (overlayMessage) {
+      case OverlayMessage::DoneBleEnabled:   display.println("BLE: ENABLED"); break;
+      case OverlayMessage::DoneBleDisabled:  display.println("BLE: DISABLED"); break;
+      case OverlayMessage::DoneWifiEnabled:  display.println("WiFi: ENABLED"); break;
+      case OverlayMessage::DoneWifiDisabled: display.println("WiFi: DISABLED"); break;
+      default: break;
+    }
+    display.display();
+    return;
   }
+
+  // Still counting down toward action
+  controlOverlayActive = true;
+  display.clearDisplay();
+  display.setTextColor(SH110X_WHITE); display.setTextSize(1);
+  display.setCursor(0, 18);
+  if (currentAction == HoldAction::BleToggle) {
+    display.println("Hold FUNC + DOWN");
+    display.setCursor(0, 30);
+    display.println("Toggle BLE");
+  } else {
+    display.println("Hold FUNC + UP");
+    display.setCursor(0, 30);
+    display.println("Toggle WiFi");
+  }
+  display.setCursor(0, 44);
+  uint32_t remainingMs = (now - actionStartMs >= HOLD_TIME_MS) ? 0 : (HOLD_TIME_MS - (now - actionStartMs));
+  uint32_t remainingSec = (remainingMs + 999) / 1000;
+  display.print("Release in: ");
+  display.print(remainingSec);
+  display.print("s");
+  display.display();
 }
 
 // =============================================================================
@@ -821,8 +943,8 @@ inline void updatePowerManagement() {
   // Track activity from various sources
   if (lastMoveMs > lastActivityMs ||
       (millis() - lastTouchEdgeMs < 5000) ||  // recent touch
-      hasNotif() ||                          // has notifications
-      bleUi != BLEUI_IDLE ||                  // BLE UI active
+  hasNotif() ||                          // has notifications
+  controlOverlayActive ||               // control overlay active
       notifPopupUntil > currentMs) {          // popup active
     lastActivityMs = currentMs;
   }
@@ -983,7 +1105,9 @@ void drawModeDock(FaceMode m) {
 
 void setup() {
   Serial.begin(115200);
-  pinMode(TOUCH_PIN, INPUT_PULLDOWN);
+  // TPS223 touch sensors with pulldown for stable LOW idle state
+  pinMode(TOUCH_DOWN, INPUT_PULLDOWN);  // Ensures LOW when not touched
+  pinMode(TOUCH_UP, INPUT_PULLDOWN);    // Ensures LOW when not touched
   pinMode(FUNC_BTN,  INPUT_PULLUP);
   pinMode(VBAT_PIN,  INPUT);
 
@@ -997,18 +1121,23 @@ void setup() {
   display.setCursor(0,0); display.println("PetBot booting...");
   display.display();
 
-  // Custom UTF-8 font is header-only; no additional init required
-  // I2S Audio init
+  // CRITICAL: Audio init with power protection
+  Serial.println("Initializing I2S audio with power protection...");
   Audio::begin(I2S_BCLK, I2S_LRC, I2S_DO, AUDIO_SAMPLE_RATE);
 
   // Initialize microphone for noise/voice detection
   if (ENABLE_MIC_LISTENING) {
+    Serial.println("Initializing microphone...");
     if (Audio::beginMicrophone(MIC_SAMPLE_RATE)) {
-      Serial.println("Microphone initialized for noise detection");
+      Serial.println("Microphone initialized successfully");
     } else {
-      Serial.println("Failed to initialize microphone");
+      Serial.println("FAILED to initialize microphone - check wiring!");
     }
   }
+
+  // Run hardware diagnostics
+  delay(1000); // Let everything settle
+  Audio::runDiagnostics();
 
   setupRoboEyes();
   // init WS2812 status LED
@@ -1190,36 +1319,33 @@ void loop() {
     AICompanion::handleBackgroundChatter();
   }
 
-  // Face switching (hold on TOUCH_PIN to avoid conflict with triple tap)
-  {
-    static bool touchHolding = false;
-    static bool faceHoldConsumed = false;
-    static uint32_t touchDownAt = 0;
-    const uint16_t FACE_HOLD_MS = 750; // hold duration to change face
-    bool touchNow = (digitalRead(TOUCH_PIN) == HIGH);
-    if (touchNow && !touchHolding) { touchHolding = true; faceHoldConsumed = false; touchDownAt = millis(); }
-    if (!touchNow && touchHolding) { touchHolding = false; }
-    if (touchHolding && !faceHoldConsumed) {
-      if (millis() - touchDownAt >= FACE_HOLD_MS) {
-        mode = (FaceMode)((mode + 1) % FACE_COUNT);
-        if (ENABLE_MODE_SFX) {
-          if (mode == FACE_NOTIF) {
-            Audio::sfxNotify();
-          } else if (mode == FACE_CLOCK) {
-            Audio::sfxConfirm();
-            Audio::playCuteQuestion();
-          } else {
-            Audio::sfxCurious();
-          }
-        }
-        wakeUp(); // Wake up on face switch
-        faceHoldConsumed = true;
-      }
-    }
+  // Triple-tap TOUCH_DOWN opens WiFi config portal (moved from FUNC triple-tap)
+  // IMPORTANT: Check triple-tap BEFORE double-tap to prevent premature triggering
+  if (touchDownTripleTap()) {
+    if (!configPortalActive) startConfigPortal();
+    else stopConfigPortalAndConnect();
+    wakeUp();
+    return; // Skip other processing
   }
 
-  // Triple-tap TOUCH_PIN toggles silent/chatty (allowed on all faces)
-  if (tripleTap(TOUCH_PIN, /*activeHigh=*/true, /*debounceMs=*/10, /*windowMs=*/650)) {
+  // Face switching - double-tap TOUCH_DOWN
+  if (touchDownDoubleTap()) {
+    mode = (FaceMode)((mode + 1) % FACE_COUNT);
+    if (ENABLE_MODE_SFX) {
+      if (mode == FACE_NOTIF) {
+        Audio::sfxNotify();
+      } else if (mode == FACE_CLOCK) {
+        Audio::sfxConfirm();
+        Audio::playCuteQuestion();
+      } else {
+        Audio::sfxCurious();
+      }
+    }
+    wakeUp(); // Wake up on gesture
+  }
+
+  // Triple-tap TOUCH_UP toggles silent/chatty mode
+  if (touchUpTripleTap()) {
     wakeUp(); // Wake up on triple-tap
     silentMode = !silentMode;
     if (silentMode) {

@@ -50,6 +50,10 @@ namespace Audio {
   bool isAudioPlaying();       // Returns true if any audio is currently playing
   bool isMicrophoneInCooldown(); // Returns true if mic is in cooldown after audio
 
+  // Hardware diagnostics
+  void runDiagnostics();       // Print detailed hardware and audio system status
+  bool isMicrophoneInCooldown(); // Returns true if mic is in cooldown after audio
+
   // Stop all voices immediately
   void stopAll();
 

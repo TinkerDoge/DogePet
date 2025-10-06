@@ -60,7 +60,7 @@ namespace Audio {
   static uint32_t lastAudioPlaybackMs = 0;
 
   // Microphone gain for sensitivity boost
-  static constexpr float MIC_GAIN = 64.0f; // Amplify microphone signal by 64X
+  static constexpr float MIC_GAIN = 8.0f; // Reduced from 64x to 8x to prevent clipping
 
   // Forward declaration for audio playback tracking
   static void updateAudioPlaybackState();
@@ -126,7 +126,7 @@ namespace Audio {
 
     size_t bytesRead = 0;
     esp_err_t result = i2s_read(I2S_PORT, micBuffer, sizeof(micBuffer), &bytesRead,
-                                pdMS_TO_TICKS(10)); // Increased timeout
+                                pdMS_TO_TICKS(50)); // Increased timeout for better stability
 
     if (result == ESP_OK && bytesRead > 0) {
       size_t samplesRead = bytesRead / sizeof(int16_t);
@@ -134,20 +134,33 @@ namespace Audio {
         currentMicLevel = calculateRMS(micBuffer, samplesRead);
         lastMicReadMs = currentMs;
 
-        // Debug: Show raw samples occasionally
+        // Enhanced debug output with RMS level
         static uint32_t lastSampleDebug = 0;
-        if (currentMs - lastSampleDebug > 30000) { // Every 30 seconds
-          Serial.printf("Raw sample[0]: %d, Bytes read: %d, Samples: %d\n",
-                       micBuffer[0], bytesRead, samplesRead);
+        if (currentMs - lastSampleDebug > 5000) { // Every 5 seconds
+          int16_t minSample = 32767, maxSample = -32768;
+          for (size_t i = 0; i < min(samplesRead, (size_t)10); i++) {
+            if (micBuffer[i] < minSample) minSample = micBuffer[i];
+            if (micBuffer[i] > maxSample) maxSample = micBuffer[i];
+          }
+          Serial.printf("MIC: Level=%.3f, Range=[%d,%d], Samples=%d, Active=%s\n",
+                       currentMicLevel, minSample, maxSample, samplesRead,
+                       (currentMicLevel > MIC_NOISE_THRESHOLD) ? "YES" : "no");
           lastSampleDebug = currentMs;
         }
       }
     } else {
-      // More detailed error reporting
+      // Enhanced error reporting
       if (result != ESP_OK) {
         static uint32_t lastErrorTime = 0;
-        if (currentMs - lastErrorTime > 2000) { // Report error once per 2 seconds
-          Serial.printf("I2S mic read error: %d (0x%X)\n", result, result);
+        if (currentMs - lastErrorTime > 3000) { // Report error once per 3 seconds
+          const char* errStr = "UNKNOWN";
+          switch(result) {
+            case ESP_ERR_INVALID_ARG: errStr = "INVALID_ARG"; break;
+            case ESP_ERR_TIMEOUT: errStr = "TIMEOUT"; break;
+            case ESP_ERR_INVALID_STATE: errStr = "INVALID_STATE"; break;
+            case ESP_FAIL: errStr = "FAIL"; break;
+          }
+          Serial.printf("I2S mic read error: %s (%d), bytes: %d\n", errStr, result, bytesRead);
           lastErrorTime = currentMs;
         }
       }
@@ -259,28 +272,83 @@ namespace Audio {
   
   void begin(int bclkPin, int lrclkPin, int dataOutPin, uint32_t sampleRate){
     g_sampleRate = sampleRate;
+    
+    // Critical: Initialize pins as output BEFORE I2S config to prevent damage
+    pinMode(bclkPin, OUTPUT);
+    pinMode(lrclkPin, OUTPUT);
+    pinMode(dataOutPin, OUTPUT);
+    pinMode(I2S_DI, INPUT); // Microphone input
+    
+    // Set pins to safe state (LOW) initially
+    digitalWrite(bclkPin, LOW);
+    digitalWrite(lrclkPin, LOW);
+    digitalWrite(dataOutPin, LOW);
+    
+    delay(100); // Allow pins to stabilize
+    
     i2s_config_t cfg = {};
     cfg.mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX | I2S_MODE_RX); // Enable both TX and RX
     cfg.sample_rate = (int)g_sampleRate;
     cfg.bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT;
     cfg.channel_format = I2S_CHANNEL_FMT_ONLY_LEFT;
     cfg.communication_format = I2S_COMM_FORMAT_STAND_I2S;
-    cfg.dma_buf_count = 4;
-    cfg.dma_buf_len = 256;
-    cfg.use_apll = false;
+    cfg.dma_buf_count = 8; // Increased from 4 to reduce underruns
+    cfg.dma_buf_len = 512; // Increased from 256 to reduce crackling
+    cfg.use_apll = true; // Use APLL for better clock stability
     cfg.tx_desc_auto_clear = true;
-    cfg.intr_alloc_flags = 0;
-    i2s_driver_install(I2S_PORT, &cfg, 0, NULL);
+    cfg.intr_alloc_flags = ESP_INTR_FLAG_LEVEL1;
+    
+    // Install I2S driver
+    esp_err_t result = i2s_driver_install(I2S_PORT, &cfg, 0, NULL);
+    if (result != ESP_OK) {
+      Serial.printf("I2S driver install failed: %d\n", result);
+      return;
+    }
 
     i2s_pin_config_t pins = {};
     pins.bck_io_num = bclkPin;
     pins.ws_io_num = lrclkPin;
     pins.data_out_num = dataOutPin;
-    pins.data_in_num = I2S_DI; // Enable microphone input on GPIO2
-    i2s_set_pin(I2S_PORT, &pins);
+    pins.data_in_num = I2S_DI; // Microphone input
+    
+    result = i2s_set_pin(I2S_PORT, &pins);
+    if (result != ESP_OK) {
+      Serial.printf("I2S pin config failed: %d\n", result);
+      return;
+    }
+    
+    // Set proper clock configuration for dual TX/RX mode
+    result = i2s_set_clk(I2S_PORT, g_sampleRate, I2S_BITS_PER_SAMPLE_16BIT, I2S_CHANNEL_MONO);
+    if (result != ESP_OK) {
+      Serial.printf("I2S clock config failed: %d\n", result);
+      return;
+    }
+    
+    // Send initial silence to ensure clean startup
+    const int N = 256;
+    int16_t silence[N];
+    memset(silence, 0, sizeof(silence));
+    size_t written = 0;
+    i2s_write(I2S_PORT, silence, sizeof(silence), &written, pdMS_TO_TICKS(100));
+    
+    Serial.println("I2S audio initialized successfully");
   }
 
   void end(){
+    // Stop all voices first
+    stopAll();
+    
+    // Give time for audio to finish playing
+    delay(50);
+    
+    // Send silence to clear any residual noise
+    const int N = 256;
+    int16_t silence[N];
+    memset(silence, 0, sizeof(silence));
+    size_t written = 0;
+    i2s_write(I2S_PORT, silence, sizeof(silence), &written, pdMS_TO_TICKS(100));
+    
+    // Stop I2S driver
     i2s_driver_uninstall(I2S_PORT);
   }
 
@@ -292,20 +360,39 @@ namespace Audio {
     if (micEnabled) return true; // Already enabled
 
     micSampleRate = sampleRate;
+    
+    Serial.printf("Initializing microphone at %d Hz on GPIO%d\n", micSampleRate, I2S_DI);
+    
+    // Test microphone pin first
+    pinMode(I2S_DI, INPUT);
+    int testRead = digitalRead(I2S_DI);
+    Serial.printf("Microphone pin test (GPIO%d): %s\n", I2S_DI, testRead ? "HIGH" : "LOW");
+    
     micEnabled = true;
     lastMicReadMs = 0;
     currentMicLevel = 0.0f;
 
     // Give I2S time to settle after enabling RX mode
-    delay(100);
+    delay(200); // Increased delay for better stability
 
-    Serial.printf("Microphone enabled at %d Hz with 64x gain\n", micSampleRate);
+    Serial.printf("Microphone enabled at %d Hz with 8x gain\n", micSampleRate);
     Serial.println("Testing microphone... speak or make noise to test sensitivity");
 
-    // Test reading immediately
+    // Test reading immediately with better error handling
     delay(500);
+    
+    // Clear any stale data first
+    size_t bytesRead = 0;
+    esp_err_t result = i2s_read(I2S_PORT, micBuffer, sizeof(micBuffer), &bytesRead, pdMS_TO_TICKS(100));
+    Serial.printf("Initial mic test - Result: %d, Bytes read: %d\n", result, bytesRead);
+    
     readMicrophoneData();
-    Serial.printf("Initial mic level: %.3f\n", currentMicLevel);
+    Serial.printf("Initial mic level: %.3f (threshold: %.3f)\n", currentMicLevel, MIC_NOISE_THRESHOLD);
+    
+    if (currentMicLevel == 0.0f) {
+      Serial.println("WARNING: Microphone appears to be not working - check wiring");
+      return false;
+    }
 
     return true;
   }
@@ -331,6 +418,48 @@ namespace Audio {
   // Check if microphone is in cooldown period after audio playback
   bool isMicrophoneInCooldown() {
     return (millis() - lastAudioPlaybackMs < MIC_FEEDBACK_COOLDOWN_MS);
+  }
+
+  // Hardware diagnostics function
+  void runDiagnostics() {
+    Serial.println("=== AUDIO HARDWARE DIAGNOSTICS ===");
+    
+    // Test pin configuration
+    Serial.printf("I2S Pin Configuration:\n");
+    Serial.printf("  BCLK:  GPIO%d\n", I2S_BCLK);
+    Serial.printf("  LRC:   GPIO%d\n", I2S_LRC);
+    Serial.printf("  DO:    GPIO%d\n", I2S_DO);
+    Serial.printf("  DI:    GPIO%d\n", I2S_DI);
+    
+    // Test pin states
+    Serial.printf("Pin States:\n");
+    Serial.printf("  BCLK:  %s\n", digitalRead(I2S_BCLK) ? "HIGH" : "LOW");
+    Serial.printf("  LRC:   %s\n", digitalRead(I2S_LRC) ? "HIGH" : "LOW");
+    Serial.printf("  DO:    %s\n", digitalRead(I2S_DO) ? "HIGH" : "LOW");
+    Serial.printf("  DI:    %s\n", digitalRead(I2S_DI) ? "HIGH" : "LOW");
+    
+    // Audio system status
+    Serial.printf("Audio System:\n");
+    Serial.printf("  Master Volume: %d/255\n", g_masterVol);
+    Serial.printf("  Sample Rate: %d Hz\n", g_sampleRate);
+    Serial.printf("  Active Voices: ");
+    int activeCount = 0;
+    for (int i = 0; i < MAX_VOICES; i++) {
+      if (voices[i].active) activeCount++;
+    }
+    Serial.printf("%d/%d\n", activeCount, MAX_VOICES);
+    
+    // Microphone status
+    Serial.printf("Microphone:\n");
+    Serial.printf("  Enabled: %s\n", micEnabled ? "YES" : "NO");
+    Serial.printf("  Sample Rate: %d Hz\n", micSampleRate);
+    Serial.printf("  Current Level: %.3f\n", currentMicLevel);
+    Serial.printf("  Threshold: %.3f\n", MIC_NOISE_THRESHOLD);
+    Serial.printf("  Gain: %.1fx\n", MIC_GAIN);
+    Serial.printf("  In Cooldown: %s\n", isMicrophoneInCooldown() ? "YES" : "NO");
+    Serial.printf("  Audio Playing: %s\n", audioPlaybackActive ? "YES" : "NO");
+    
+    Serial.println("=== END DIAGNOSTICS ===");
   }
 
   void playBeep(float freqHz, uint16_t ms, uint8_t volume, uint8_t wave){
@@ -376,11 +505,11 @@ namespace Audio {
     // Read microphone data periodically if enabled
     readMicrophoneData();
 
-    // Produce a small chunk per call
-    const int N = 256;
+    // Produce a larger chunk per call to reduce I2S overhead
+    const int N = 512; // Increased from 256 to reduce update frequency
     int16_t buffer[N];
     uint32_t frameStartMs = millis();
-    const float masterGain = 1.6f * (g_masterVol / 200.0f); // scale by master volume
+    const float masterGain = 0.8f * (g_masterVol / 255.0f); // Reduced gain significantly to prevent overheating
     for (int n=0;n<N;n++){
       float mix = 0.0f;
       uint32_t tMsOffset = (uint32_t)((1000.0f * n) / (float)g_sampleRate);
@@ -389,13 +518,30 @@ namespace Audio {
         uint32_t elapsed = (frameStartMs - voices[i].t0) + tMsOffset;
         mix += renderVoiceSample(voices[i], elapsed);
       }
-      // soft clip
+      // Apply power limiting to prevent speaker damage
       mix *= masterGain;
-      if (mix > 0.97f) mix = 0.97f; if (mix < -0.97f) mix = -0.97f;
+      
+      // Hard limiting at lower levels to prevent overheating
+      if (mix > 0.7f) mix = 0.7f; 
+      if (mix < -0.7f) mix = -0.7f;
+      
+      // Additional soft compression to reduce peaks
+      if (mix > 0.5f) mix = 0.5f + (mix - 0.5f) * 0.3f;
+      if (mix < -0.5f) mix = -0.5f + (mix + 0.5f) * 0.3f;
+      
       buffer[n] = (int16_t)(mix * 32767.0f);
     }
     size_t written = 0;
-    i2s_write(I2S_PORT, buffer, sizeof(buffer), &written, 0);
+    // Use longer timeout to prevent buffer underruns
+    esp_err_t result = i2s_write(I2S_PORT, buffer, sizeof(buffer), &written, pdMS_TO_TICKS(20));
+    if (result != ESP_OK && result != ESP_ERR_TIMEOUT) {
+      static uint32_t lastErrorMs = 0;
+      uint32_t now = millis();
+      if (now - lastErrorMs > 5000) { // Log error once per 5 seconds
+        Serial.printf("I2S write error: %d\n", result);
+        lastErrorMs = now;
+      }
+    }
   }
 
   // --- Presets ---
