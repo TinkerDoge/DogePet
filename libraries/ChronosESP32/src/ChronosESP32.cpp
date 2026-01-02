@@ -394,6 +394,14 @@ HourlyForecast ChronosESP32::getForecastHour(int hour)
 }
 
 /*!
+	@brief  return the weather location data
+*/
+WeatherLocation ChronosESP32::getWeatherLocation()
+{
+	return _weatherLocation;
+}
+
+/*!
 	@brief  get the alarm at the index
 	@param	index
 			position of the alarm to be returned
@@ -773,6 +781,15 @@ void ChronosESP32::sendBattery()
 	uint8_t c = _isCharging ? 0x01 : 0x00;
 	uint8_t batCmd[] = {0xAB, 0x00, 0x05, 0xFF, 0x91, 0x80, c, _batteryLevel};
 	sendCommand(batCmd, 8);
+}
+
+/*!
+	@brief  request the app to sync settings
+*/
+void ChronosESP32::syncRequest()
+{
+	uint8_t syncCmd[] = {0xAB, 0x00, 0x03, 0xFE, 0x23, 0x80};
+	sendCommand(syncCmd, 6);
 }
 
 /*!
@@ -1384,6 +1401,15 @@ void ChronosESP32::dataReceived()
 		switch (_incomingData.data[4])
 		{
 
+		case 0x20:
+			if (_incomingData.data[3] == 0xFE)
+			{
+				if (configurationReceivedCallback != nullptr)
+				{
+					configurationReceivedCallback(CF_SYNCED, 0, 0);
+				}
+			}
+			break;
 		case 0x23:
 			if (configurationReceivedCallback != nullptr)
 			{
@@ -1680,11 +1706,16 @@ void ChronosESP32::dataReceived()
 
 			break;
 		case 0x93:
+			if (configurationReceivedCallback != nullptr)
+			{
+				configurationReceivedCallback(CF_TIME, 0, 0);
+			}
+
 			this->setTime(_incomingData.data[13], _incomingData.data[12], _incomingData.data[11], _incomingData.data[10], _incomingData.data[9], _incomingData.data[7] * 256 + _incomingData.data[8]);
 
 			if (configurationReceivedCallback != nullptr)
 			{
-				configurationReceivedCallback(CF_TIME, 0, 0);
+				configurationReceivedCallback(CF_TIME, 1, 0);
 			}
 			break;
 		case 0x9C:
@@ -1906,8 +1937,10 @@ void ChronosESP32::dataReceived()
 	}
 	else if (_incomingData.data[0] == 0xEA)
 	{
-		if (_incomingData.data[4] == 0x7E)
+		switch (_incomingData.data[4])
 		{
+		case 0x7E:
+			/* code */
 			switch (_incomingData.data[5])
 			{
 			case 0x01:
@@ -1948,7 +1981,50 @@ void ChronosESP32::dataReceived()
 				}
 			}
 			break;
+			} /* END switch (_incomingData.data[5]) */
+			break;
+
+		case 0x7F:
+			if (_incomingData.data[3] == 0xFE)
+			{
+				uint8_t payloadLen = _incomingData.data[6];
+				const uint8_t *payload = &_incomingData.data[7];
+
+				// Read coordinates (Little Endian)
+				float latitude;
+				float longitude;
+				memcpy(&latitude, payload, 4);
+				memcpy(&longitude, payload + 4, 4);
+
+				// Move pointer past coordinates
+				int index = 8;
+
+				// Read city (null-terminated)
+				String city = "";
+				while (index < payloadLen && payload[index] != 0x00)
+					city += (char)payload[index++];
+				index++; // skip null
+
+				// Read region (null-terminated)
+				String region = "";
+				while (index < payloadLen && payload[index] != 0x00)
+					region += (char)payload[index++];
+				index++; // skip null
+
+				// Remaining bytes = country
+				String country = "";
+				while (index < payloadLen)
+					country += (char)payload[index++];
+
+				// Assign to struct
+				_weatherLocation.city = city;
+				_weatherLocation.region = region;
+				_weatherLocation.country = country;
+				_weatherLocation.latitude = latitude;
+				_weatherLocation.longitude = longitude;
 			}
+
+			break;
 		}
 	}
 }

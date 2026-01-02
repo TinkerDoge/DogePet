@@ -62,7 +62,7 @@ def extract_keywords(header_file_path, library_name="ChronosESP32", output_file=
     # Enum values
     enum_blocks = re.findall(r"enum\s+[a-zA-Z_]\w*\s*{([^}]+)}", full_content, re.DOTALL)
     for block in enum_blocks:
-        enum_values = re.findall(r"\b([A-Z_][A-Z0-9_]*)\b", block)
+        enum_values = re.findall(r"\b([A-Z_][A-Za-z0-9_]*)\b", block)
         for val in enum_values:
             output_lines.append(f"{val}\tLITERAL1")
         output_lines.append("")

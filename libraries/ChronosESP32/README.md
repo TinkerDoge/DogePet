@@ -45,6 +45,7 @@ bool is24Hour();
 String getAddress();
 void setBattery(uint8_t level, bool charging = false);
 bool isCameraReady();
+void syncRequest();
 
 // notifications
 int getNotificationCount();
@@ -57,6 +58,7 @@ String getWeatherCity();
 String getWeatherTime();
 Weather getWeatherAt(int index);
 HourlyForecast getForecastHour(int hour);
+WeatherLocation getWeatherLocation();
 
 // extras
 RemoteTouch getTouch();

@@ -38,8 +38,8 @@
 #include <ESP32Time.h>
 
 #define CHRONOSESP_VERSION_MAJOR 1
-#define CHRONOSESP_VERSION_MINOR 8
-#define CHRONOSESP_VERSION_PATCH 2
+#define CHRONOSESP_VERSION_MINOR 9
+#define CHRONOSESP_VERSION_PATCH 0
 
 #define CHRONOSESP_VERSION F(CHRONOSESP_VERSION_MAJOR "." CHRONOSESP_VERSION_MINOR "." CHRONOSESP_VERSION_PATCH)
 
@@ -95,6 +95,15 @@ struct Weather
 	int low;
 	int pressure;
 	int uv;
+};
+
+struct WeatherLocation
+{
+	String city;
+	String region;
+	String country;
+	float latitude;
+	float longitude;
 };
 
 struct HourlyForecast
@@ -177,7 +186,7 @@ struct DateTime
 
 enum Config
 {
-	CF_TIME = 0, // time -
+	CF_TIME = 0, // time - (a 0 = before, 1 = after setting)
 	CF_RTW,		 // raise to wake  -
 	CF_HR24,	 // 24 hour mode -
 	CF_LANG,	 // watch language -
@@ -200,6 +209,7 @@ enum Config
 	CF_NAV_DATA, // navigation data received
 	CF_NAV_ICON, // navigation icon received
 	CF_CONTACT,	 // contacts data received
+	CF_SYNCED,	 // data sync completed (esp32 can go to sleep if needed)
 };
 
 enum HealthRequest
@@ -250,7 +260,16 @@ enum ChronosScreen
 	CS_410x494_200_RTF = 25, // 410x494, 2.0 inches, Rectangular, True, False
 	CS_410x494_200_RTT = 32, // 410x494, 2.0 inches, Rectangular, True, True
 	CS_466x466_143_CTF = 33, // 466x466, 1.43 inches, Round, True, False
-	CS_466x466_143_CTT = 34	 // 466x466, 1.43 inches, Round, True, True
+	CS_466x466_143_CTT = 34, // 466x466, 1.43 inches, Round, True, True
+
+	// extended configurations for open source projects, used as an identifier for Chronos App
+	CF_WATCHY_200x200 = 0x80,	 // Watchy 200x200 (E_PAPER)
+	CF_ESP32_240x240 = 0x81,	 // Generic ESP32 240x240
+	CF_ESP32_466x466 = 0x82,	 // Generic ESP32 466x466 (AMOLED)
+	CF_WEBSCREEN_536x240 = 0x83, // Webscreen 536x240 (AMOLED)
+	CF_WAVESHARE_410x502 = 0x84, // Waveshare 410x502 (AMOLED)
+	CF_ZSWATCH_240x240 = 0x85,	 // ZSWatch 240x240
+	CF_VIEWE_28_240x320 = 0x86,  // Viewe ESP32 240x320
 };
 
 class ChronosESP32 : public BLEServerCallbacks, public BLECharacteristicCallbacks, public ESP32Time
@@ -259,13 +278,13 @@ class ChronosESP32 : public BLEServerCallbacks, public BLECharacteristicCallback
 public:
 	// library
 	ChronosESP32();
-	ChronosESP32(String name, ChronosScreen screen = CS_240x240_128_CTF); // set the BLE name
-	void begin();														  // initializes BLE server
-	void stop(bool clearAll = true);									  // stop the BLE server
-	void loop();														  // handles routine functions
-	bool isRunning();													  // check whether BLE server is inited and running
-	void setName(String name);											  // set the BLE name (call before begin)
-	void setScreen(ChronosScreen screen);								  // set the screen config (call before begin)
+	ChronosESP32(String name, ChronosScreen screen = CF_ESP32_240x240); // set the BLE name
+	void begin();														// initializes BLE server
+	void stop(bool clearAll = true);									// stop the BLE server
+	void loop();														// handles routine functions
+	bool isRunning();													// check whether BLE server is inited and running
+	void setName(String name);											// set the BLE name (call before begin)
+	void setScreen(ChronosScreen screen);								// set the screen config (call before begin)
 	void setChunkedTransfer(bool chunked);
 	bool isSubscribed();
 
@@ -276,6 +295,7 @@ public:
 	String getAddress();
 	void setBattery(uint8_t level, bool charging = false);
 	bool isCameraReady();
+	void syncRequest();
 
 	// notifications
 	int getNotificationCount();
@@ -288,6 +308,7 @@ public:
 	String getWeatherTime();
 	Weather getWeatherAt(int index);
 	HourlyForecast getForecastHour(int hour);
+	WeatherLocation getWeatherLocation();
 
 	// extras
 	RemoteTouch getTouch();
@@ -395,6 +416,7 @@ private:
 	String _weatherCity;
 	String _weatherTime;
 	int _weatherSize;
+	WeatherLocation _weatherLocation;
 
 	HourlyForecast _hourlyForecast[FORECAST_SIZE];
 

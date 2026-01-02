@@ -287,7 +287,19 @@ void configCallback(Config config, uint32_t a, uint32_t b)
     {
       Serial.print("City name: ");
       String city = watch.getWeatherCity(); //
-      Serial.print(city);
+      Serial.println(city);
+
+      WeatherLocation loc = watch.getWeatherLocation();
+      Serial.print("City: ");
+      Serial.println(loc.city);
+      Serial.print("Region: ");
+      Serial.println(loc.region); 
+      Serial.print("Country: ");
+      Serial.println(loc.country); 
+      Serial.print("Coordinates -> Lat: ");
+      Serial.print(loc.latitude, 6);
+      Serial.print("\tLon: ");
+      Serial.println(loc.longitude, 6);
     }
     Serial.println();
     break;
