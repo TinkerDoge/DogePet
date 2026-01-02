@@ -11,8 +11,8 @@ DogePet is an ESP32-S3 based companion robot with animated eyes, audio feedback,
 | Parameter | Value |
 |-----------|-------|
 | **MCU** | ESP32-S3 Super Mini |
-| **Flash** | 4MB (varies by module) |
-| **PSRAM** | Optional (2-8MB) |
+| **Flash** | 4MB |
+| **PSRAM** | QSPI (2MB) |
 | **USB** | Native USB-C |
 | **Voltage** | 3.3V logic |
 
@@ -26,12 +26,12 @@ DogePet is an ESP32-S3 based companion robot with animated eyes, audio feedback,
 |------|----------|-----------|-------|
 | 5 | I2C_SCL | Output | 400kHz Fast Mode |
 | 6 | I2C_SDA | Bidirectional | Shared bus |
-| 11 | I2S_DI | Input | Microphone data (dual-channel HW) |
+| 11 | I2S_DI | Input | Microphone data (dual-channel HW) | INMP441
 | 15 | VBAT_PIN | Input | Battery voltage ADC |
 | 16 | I2S_LRC | Output | Audio Word Select (LRCLK) |
 | 17 | I2S_BCLK | Output | Audio Bit Clock |
-| 33 | I2S_DO | Output | Audio Data Out |
-| 41 | FUNC_BTN | Input | Main button (Active HIGH) |
+| 33 | I2S_DO | Output | Audio Data Out | MAX98375A
+| 41 | FUNC_BTN | Input | Main button (Active HIGH) | TPP223
 | 48 | LED_PIN | Output | WS2812 Status LED |
 | 3 | VIBRO_RIGHT | Output | Right vibration motor (PWM) |
 | 4 | VIBRO_LEFT | Output | Left vibration motor (PWM) |
@@ -211,7 +211,7 @@ Pin 2  →    3.3V
 
 **Voltage Divider (for 4.2V Li-Po):**
 ```
-VBAT ──┬── R1 (100kΩ) ──┬── R2 (100kΩ) ── GND
+VBAT ──┬── R1 (10kΩ) ──┬── R2 (10kΩ) ── GND
        │                │
        │                └── GPIO 15 (ADC)
        └── To charge controller
@@ -247,7 +247,7 @@ V_measured = ADC_raw × (3.3V / 4095) × 2 × VBAT_CAL
 | **Total** | ~100mA | ~900mA |
 
 **Recommended Battery:** 500mAh+ Li-Po with protection circuit
-
+Currently using a 250mAh battery
 ---
 
 ## Schematic Notes

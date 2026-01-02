@@ -1,5 +1,5 @@
-// DogePet - Minimal Barebones Sketch
-// Just displays eyes on OLED - ready for web configuration integration
+// DogePet - Robot Face with PC Companion App Support
+// Communicates via USB Serial with PC companion app
 
 #include <Arduino.h>
 #include <Wire.h>
@@ -12,7 +12,7 @@ bool gEyesAutoFlush = true;
 int gEyesViewportYMax = 0;
 
 #include "FluxGarage_RoboEyes.h"
-#include "include/web_config.h"
+#include "include/serial_cmd.h"
 
 // =============================================================================
 // HARDWARE OBJECTS
@@ -30,23 +30,25 @@ static uint32_t lastUpdateMs = 0;
 // =============================================================================
 void setup() {
   Serial.begin(115200);
-  Serial.println("\n=== DogePet Barebones ===");
+  
+  // Wait a moment for Serial to initialize
+  delay(100);
 
   // Initialize I2C
   Wire.begin(I2C_SDA, I2C_SCL, 400000);
-  Serial.printf("I2C: SDA=%d, SCL=%d\n", I2C_SDA, I2C_SCL);
 
   // Initialize display
   if (!display.begin(SCREEN_ADDR, true)) {
-    Serial.println("ERROR: OLED not found!");
+    Serial.println("{\"status\":\"error\",\"msg\":\"OLED not found\"}");
     while (1) delay(100);
   }
   display.clearDisplay();
   display.setTextColor(SH110X_WHITE);
   display.setCursor(0, 0);
   display.println("DogePet");
+  display.println("Waiting for");
+  display.println("companion...");
   display.display();
-  Serial.println("OLED: OK");
 
   // Initialize RoboEyes
   Eyes.begin(SCREEN_W, SCREEN_H, 50);
@@ -56,18 +58,15 @@ void setup() {
   Eyes.setSpacebetween(EYE_SPACING);
   Eyes.setAutoblinker(true, 3, 4);
   Eyes.setIdleMode(true, 4, 5);
-  Serial.println("Eyes: OK");
 
   // Button setup
   pinMode(FUNC_BTN, INPUT);
-  Serial.printf("Button: GPIO%d (Active HIGH)\n", FUNC_BTN);
 
-  // Initialize Web Configuration
-  setupWebConfig(&Eyes);
+  // Initialize Serial command handler
+  setupSerialCmd(&Eyes);
 
   delay(500);
   display.clearDisplay();
-  Serial.println("Setup complete!\n");
 }
 
 // =============================================================================
@@ -76,8 +75,8 @@ void setup() {
 void loop() {
   uint32_t now = millis();
 
-  // Handle web server requests
-  loopWebConfig();
+  // Process incoming Serial commands from PC companion app
+  processSerialCmd();
 
   // Throttled display update
   if (now - lastUpdateMs >= DISPLAY_UPDATE_MS) {
@@ -89,9 +88,8 @@ void loop() {
   static bool lastBtn = false;
   bool btn = digitalRead(FUNC_BTN) == HIGH;
   if (btn && !lastBtn) {
-    Serial.println("Button pressed!");
     Eyes.blink();
+    Serial.println("{\"event\":\"button\",\"action\":\"pressed\"}");
   }
   lastBtn = btn;
 }
-

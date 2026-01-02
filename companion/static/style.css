@@ -1,0 +1,143 @@
+:root {
+    --bg-dark: #121214;
+    --win-bg: #1e1e22;
+    --accent: #ff2e63; /* Neon Pink */
+    --accent-blue: #08d9d6; /* Neon Cyan */
+    --text: #e8e8e8;
+    --border: #000000;
+    --shadow: #000000;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Space Mono', monospace; }
+
+body.retro-dark {
+    background-color: var(--bg-dark);
+    /* Subtle Dark Halftone Pattern */
+    background-image: radial-gradient(rgba(255,255,255,0.03) 1px, transparent 0);
+    background-size: 24px 24px;
+    color: var(--text);
+    min-height: 100vh;
+    padding: 20px;
+    overflow-x: hidden;
+}
+
+.desktop-wrapper {
+    max-width: 1400px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+/* Taskbar */
+.taskbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--accent);
+    color: #000;
+    padding: 10px 20px;
+    border: 3px solid var(--border);
+    box-shadow: 6px 6px 0px var(--shadow);
+    font-weight: bold;
+}
+
+.brand { font-family: 'Bungee', cursive; font-size: 1.2rem; }
+
+/* Grid Layout - No overlaps */
+.grid-layout {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+    gap: 24px;
+    align-items: start;
+}
+
+.column { display: flex; flex-direction: column; gap: 24px; }
+
+/* Retro Windows */
+.window {
+    background: var(--win-bg);
+    border: 3px solid var(--border);
+    box-shadow: 8px 8px 0px var(--shadow);
+    position: relative;
+}
+
+.window-header {
+    background: var(--border);
+    color: var(--accent-blue);
+    padding: 4px 12px;
+    font-size: 0.8rem;
+    font-weight: bold;
+    border-bottom: 3px solid var(--border);
+}
+
+.window-content { padding: 15px; }
+
+/* OLED Preview Box */
+.oled-preview { background: #000; text-align: center; }
+.canvas-container {
+    background: #000;
+    padding: 10px;
+    border: 2px dashed #444;
+    display: inline-block;
+}
+
+#oledCanvas {
+    width: 256px; /* Scaled visually */
+    height: 128px;
+    image-rendering: pixelated; /* Keeps pixels sharp */
+    background: #000;
+    display: block;
+}
+
+.meta { font-size: 0.6rem; color: #666; margin-top: 10px; }
+
+/* Buttons & Controls */
+.btn-retro, .option-btn, .action-btn, .pos-btn {
+    background: #2a2a30;
+    color: var(--text);
+    border: 3px solid var(--border);
+    padding: 10px;
+    font-weight: bold;
+    cursor: pointer;
+    box-shadow: 4px 4px 0px var(--shadow);
+    transition: 0.1s;
+}
+
+.btn-retro.primary { background: var(--accent-blue); color: #000; }
+.btn-retro:active, .action-btn:active { transform: translate(2px, 2px); box-shadow: 2px 2px 0px var(--shadow); }
+
+.button-row { display: grid; grid-template-columns: 1fr 1.5fr; gap: 10px; margin-top: 10px; }
+select { 
+    width: 100%; padding: 10px; background: #000; color: var(--accent-blue); 
+    border: 3px solid var(--border); font-family: inherit; 
+}
+
+/* Sliders */
+.slider-box { margin-bottom: 15px; }
+.slider-box label { display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--accent); margin-bottom: 5px; }
+input[type="range"] { width: 100%; accent-color: var(--accent-blue); }
+
+/* Position Grid */
+.pos-center { display: flex; justify-content: center; }
+.pos-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; width: 150px; }
+.pos-btn { aspect-ratio: 1; font-size: 1.2rem; }
+.pos-btn.active { background: var(--accent-blue); color: #000; }
+
+/* Moods & Toggles */
+.mood-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.option-btn.active { background: var(--accent); color: #000; }
+
+.flag-list { display: flex; flex-direction: column; gap: 8px; }
+.flag { 
+    display: flex; justify-content: space-between; padding: 10px; 
+    border-bottom: 1px solid #333; font-size: 0.8rem; cursor: pointer;
+}
+
+.action-stack { display: flex; flex-direction: column; gap: 10px; }
+.action-btn { background: var(--accent-blue); color: #000; text-align: left; }
+
+/* Connection Status */
+.status-chip { background: #000; border: 2px solid var(--border); padding: 4px 12px; font-size: 0.7rem; display: flex; align-items: center; gap: 8px; }
+.status-dot { width: 8px; height: 8px; border-radius: 50%; background: #ff4d4d; }
+.status-chip.connected .status-dot { background: #00ff88; box-shadow: 0 0 10px #00ff88; }
