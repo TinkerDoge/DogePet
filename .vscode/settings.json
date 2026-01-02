@@ -3,5 +3,6 @@
         "cstdint": "cpp",
         "compare": "cpp",
         "chrono": "cpp"
-    }
+    },
+    "idf.pythonInstallPath": "D:\\softwares\\Espressif\\Tools\\tools\\idf-python\\3.11.2\\python.exe"
 }

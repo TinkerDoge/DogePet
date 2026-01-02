@@ -75,14 +75,12 @@ static constexpr uint32_t  WIFI_CONNECT_TIMEOUT_MS = 30000;
 ### Touch Controls
 - **TOUCH_DOWN (GPIO 35, active-HIGH)**
   - Double tap: Cycle through faces/modes (Eyes → Clock → Notifications)
-  - Triple tap: WiFi configuration portal
 
 - **TOUCH_UP (GPIO 39, active-HIGH)**
-  - Double tap: Reserved for future function
-  - Triple tap: Toggle Silent/Chatty mode
+  - Double tap: Toggle Silent/Chatty mode
 
-- **TOUCH_UP + TOUCH_DOWN (both held)**
-  - Squeeze detection: Reserved for future function
+- **TOUCH_UP + TOUCH_DOWN (both held together - "Squeeze")**
+  - Squeeze: Toggle WiFi configuration portal
 
 ### Status LED (WS2812)
 - Blue: BLE enabled

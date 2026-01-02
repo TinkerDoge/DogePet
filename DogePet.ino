@@ -506,10 +506,14 @@ static bool detectTapSequence(uint8_t pin, bool activeHigh, uint8_t requiredTaps
         if (state->tapCount == 0 || (now - state->windowStartMs) > windowMs) {
           state->tapCount = 1;
           state->windowStartMs = now;
+          Serial.printf("[TAP] Pin %d: First tap, window started\n", pin);
         } else {
           state->tapCount++;
+          Serial.printf("[TAP] Pin %d: Tap #%d (within %lums window)\n", 
+                       pin, state->tapCount, now - state->windowStartMs);
         }
         if (state->tapCount >= requiredTaps) {
+          Serial.printf("[TAP] Pin %d: %d-tap detected! Resetting.\n", pin, requiredTaps);
           state->tapCount = 0;
           return true;
         }
@@ -518,6 +522,8 @@ static bool detectTapSequence(uint8_t pin, bool activeHigh, uint8_t requiredTaps
   }
 
   if (state->tapCount > 0 && (now - state->windowStartMs) > windowMs) {
+    Serial.printf("[TAP] Pin %d: Window expired (%lums), resetting count %d\n", 
+                 pin, now - state->windowStartMs, state->tapCount);
     state->tapCount = 0;
   }
 
@@ -528,16 +534,8 @@ static inline bool touchDownDoubleTap(uint16_t windowMs=TOUCH_DOUBLE_TAP_WINDOW)
   return detectTapSequence(TOUCH_DOWN, true, 2, TOUCH_DEBOUNCE_MS, windowMs);
 }
 
-static inline bool touchDownTripleTap(uint16_t windowMs=TOUCH_TRIPLE_TAP_WINDOW) {
-  return detectTapSequence(TOUCH_DOWN, true, 3, TOUCH_DEBOUNCE_MS, windowMs);
-}
-
 static inline bool touchUpDoubleTap(uint16_t windowMs=TOUCH_DOUBLE_TAP_WINDOW) {
   return detectTapSequence(TOUCH_UP, true, 2, TOUCH_DEBOUNCE_MS, windowMs);
-}
-
-static inline bool touchUpTripleTap(uint16_t windowMs=TOUCH_TRIPLE_TAP_WINDOW) {
-  return detectTapSequence(TOUCH_UP, true, 3, TOUCH_DEBOUNCE_MS, windowMs);
 }
 
 // Note: FUNC_BTN triple-tap removed - hardware double-press turns device off
@@ -648,10 +646,6 @@ bool        wifiEnabled = false;  // Track WiFi state
 
 // === AI and Animation functions moved to separate modules ===
 // See ai_companion.cpp and animation_engine.cpp
-
-// Placeholder wrappers for future features
-inline bool touchUpDoubleTapPending() { return touchUpDoubleTap(); }
-inline bool touchUpTripleTapPending() { return touchUpTripleTap(); }
 
 // ===== WiFi Config Portal =====
 static void portalHandleRoot() {
@@ -773,6 +767,17 @@ void updateBleToggleUI() {
   const bool touchUpHeld = (digitalRead(TOUCH_UP) == HIGH);
   touchSqueezeActive = touchDownHeld && touchUpHeld;
 
+  // Debug output for hold detection
+  static uint32_t lastDebugMs = 0;
+  uint32_t now = millis();
+  if (funcPressed && (now - lastDebugMs > 500)) {
+    Serial.printf("[HOLD] FUNC pressed, DOWN=%s, UP=%s, Squeeze=%s\n",
+                 touchDownHeld ? "HIGH" : "LOW",
+                 touchUpHeld ? "HIGH" : "LOW",
+                 touchSqueezeActive ? "YES" : "NO");
+    lastDebugMs = now;
+  }
+
   // Note: FUNC triple-press disabled (hardware double-press powers off)
   // WiFi config portal moved to main loop (TOUCH_DOWN triple-tap)
 
@@ -808,8 +813,10 @@ void updateBleToggleUI() {
     if (!touchSqueezeActive) {
       if (touchUpHeld && !touchDownHeld) {
         desiredAction = HoldAction::WifiToggle;
+        Serial.println("[HOLD] Detected: FUNC + TOUCH_UP -> WiFi toggle");
       } else if (touchDownHeld && !touchUpHeld) {
         desiredAction = HoldAction::BleToggle;
+        Serial.println("[HOLD] Detected: FUNC + TOUCH_DOWN -> BLE toggle");
       }
       // else: FUNC pressed alone -> no action (prevents false trigger)
     }
@@ -819,6 +826,10 @@ void updateBleToggleUI() {
     currentAction = desiredAction;
     actionStartMs = millis();
     actionFired = false;
+    Serial.printf("[HOLD] Action started: %s, waiting %dms\n",
+                 (currentAction == HoldAction::BleToggle) ? "BLE" : 
+                 (currentAction == HoldAction::WifiToggle) ? "WiFi" : "None",
+                 HOLD_TIME_MS);
     if (mode != FACE_EYES) {
       overlayMessage = (currentAction == HoldAction::BleToggle)
                         ? OverlayMessage::PromptBle
@@ -835,10 +846,12 @@ void updateBleToggleUI() {
     return;
   }
 
-  const uint32_t now = millis();
+  // Reuse 'now' from earlier in function
   if (!actionFired && (now - actionStartMs) >= HOLD_TIME_MS) {
+    Serial.printf("[HOLD] Hold time reached (%lums), firing action!\n", now - actionStartMs);
     const bool quietUi = (mode == FACE_EYES);
     if (currentAction == HoldAction::BleToggle) {
+      Serial.println("[HOLD] Toggling BLE...");
       toggleBle(quietUi);
       if (!quietUi) {
         overlayMessage = bleEnabled ? OverlayMessage::DoneBleEnabled : OverlayMessage::DoneBleDisabled;
@@ -847,6 +860,7 @@ void updateBleToggleUI() {
         overlayMessage = OverlayMessage::None;
       }
     } else {
+      Serial.println("[HOLD] Toggling WiFi...");
       toggleWifi(quietUi);
       if (!quietUi) {
         overlayMessage = wifiEnabled ? OverlayMessage::DoneWifiEnabled : OverlayMessage::DoneWifiDisabled;
@@ -1004,6 +1018,7 @@ inline void checkMicrophoneNoise() {
 
   static uint32_t lastNoiseReactionMs = 0;
   static uint32_t consecutiveNoiseCount = 0;
+  static uint32_t lastDirectionUpdateMs = 0;
 
   // Check noise level periodically
   static uint32_t lastMicCheckMs = 0;
@@ -1013,6 +1028,11 @@ inline void checkMicrophoneNoise() {
 
   float micLevel = Audio::getMicrophoneLevel();
   bool isLoud = Audio::isLoudNoiseDetected();
+  
+  // Get stereo direction info
+  float soundDirection = Audio::getSoundDirection();
+  bool soundFromLeft = Audio::isSoundFromLeft();
+  bool soundFromRight = Audio::isSoundFromRight();
 
   // Debug output (optional - remove for production)
   static uint32_t lastDebugMs = 0;
@@ -1025,10 +1045,27 @@ inline void checkMicrophoneNoise() {
   if (isLoud) {
     consecutiveNoiseCount++;
     wakeUp(); // Wake up on loud noise
+    
+    // === STEREO DIRECTIONAL TRACKING ===
+    // Update eye direction toward sound source (smooth, not too frequent)
+    if (currentMs - lastDirectionUpdateMs >= 300) { // Update every 300ms
+      if (soundFromLeft) {
+        AnimationEngine::lookDirection("left");
+        Serial.println("[STEREO] Sound from LEFT - looking left");
+      } else if (soundFromRight) {
+        AnimationEngine::lookDirection("right");
+        Serial.println("[STEREO] Sound from RIGHT - looking right");
+      } else if (abs(soundDirection) < 0.2f) {
+        // Centered sound - look forward
+        AnimationEngine::lookDirection("center");
+        Serial.println("[STEREO] Sound CENTERED - looking forward");
+      }
+      lastDirectionUpdateMs = currentMs;
+    }
 
     // Only react if enough time has passed since last reaction
     if (currentMs - lastNoiseReactionMs >= MIC_COOLDOWN_MS) {
-      Serial.printf("Loud noise detected! Level: %.2f\n", micLevel);
+      Serial.printf("Loud noise detected! Level: %.2f, Direction: %.2f\n", micLevel, soundDirection);
 
       // If Gemini AI is connected, send voice trigger marker only (let AI module craft the prompt)
       if (ENABLE_GEMINI_AI && wifiEnabled && AICompanion::isEnabled() && AICompanion::isReady()) {
@@ -1042,13 +1079,29 @@ inline void checkMicrophoneNoise() {
           setEyesMood(MS_ANGRY);
           moodUntil = currentMs + MOOD_HOLD_MS;
           if (ENABLE_MOOD_SFX) Audio::playCuteNo(200);
-          showToast("Hey! Too loud!", 1500);
+          
+          // Show directional toast
+          if (soundFromLeft) {
+            showToast("← Hey! Too loud!", 1500);
+          } else if (soundFromRight) {
+            showToast("Hey! Too loud! →", 1500);
+          } else {
+            showToast("Hey! Too loud!", 1500);
+          }
         } else {
           // Single loud noise - curious reaction
           setEyesMood(MS_HAPPY);
           moodUntil = currentMs + MOOD_HOLD_MS / 2;
           if (ENABLE_MOOD_SFX) Audio::playCuteQuestion(200);
-          showToast("Huh? What was that?", 1200);
+          
+          // Show directional curiosity
+          if (soundFromLeft) {
+            showToast("👂← What's that?", 1200);
+          } else if (soundFromRight) {
+            showToast("What's that? →👂", 1200);
+          } else {
+            showToast("Huh? What was that?", 1200);
+          }
         }
       }
 
@@ -1068,6 +1121,34 @@ inline void checkMicrophoneNoise() {
 // draw 1-bit bitmap helper
 inline void drawIcon(int x, int y, const uint8_t* bmp) {
   display.drawBitmap(x, y, bmp, 12, 12, SH110X_WHITE);
+}
+
+// Draw sound direction indicator on screen edge
+inline void drawSoundDirectionIndicator(float direction) {
+  // Don't draw if sound is too centered
+  if (abs(direction) < 0.2f) return;
+  
+  const int dotSize = 3; // 3px filled circle
+  int x, y;
+  
+  if (direction < 0) {
+    // Sound from left - dot on left edge
+    x = 2;
+    // Magnitude affects Y position (stronger sound = more offset from center)
+    int yOffset = (int)(-direction * 20.0f); // Range: 0-20 pixels
+    y = (SCREEN_H / 2) - yOffset;
+  } else {
+    // Sound from right - dot on right edge
+    x = SCREEN_W - 2 - dotSize;
+    int yOffset = (int)(direction * 20.0f);
+    y = (SCREEN_H / 2) - yOffset;
+  }
+  
+  // Clamp Y to safe screen bounds
+  y = constrain(y, dotSize, SCREEN_H - dotSize);
+  
+  // Draw the indicator dot
+  display.fillCircle(x, y, dotSize, SH110X_WHITE);
 }
 
 // Top status bar (12 px tall): BLE + notif badge + optional play/pause hint
@@ -1319,18 +1400,41 @@ void loop() {
     AICompanion::handleBackgroundChatter();
   }
 
-  // Triple-tap TOUCH_DOWN opens WiFi config portal (moved from FUNC triple-tap)
-  // IMPORTANT: Check triple-tap BEFORE double-tap to prevent premature triggering
-  if (touchDownTripleTap()) {
+  // Squeeze detection (both sensors held) - WiFi config portal
+  static bool lastSqueezeState = false;
+  if (touchSqueezeActive && !lastSqueezeState) {
+    Serial.println("[SQUEEZE] Both sensors held - toggling WiFi config portal");
     if (!configPortalActive) startConfigPortal();
     else stopConfigPortalAndConnect();
     wakeUp();
-    return; // Skip other processing
+    lastSqueezeState = true;
+  } else if (!touchSqueezeActive && lastSqueezeState) {
+    lastSqueezeState = false;
   }
 
   // Face switching - double-tap TOUCH_DOWN
   if (touchDownDoubleTap()) {
+    Serial.println("[FACE] Double-tap detected! Switching face mode...");
+    FaceMode oldMode = mode;
     mode = (FaceMode)((mode + 1) % FACE_COUNT);
+    Serial.printf("[FACE] Switched from %d to %d (Eyes=0, Clock=1, Notif=2)\n", 
+                 (int)oldMode, (int)mode);
+    
+    // Force immediate display update on face switch
+    lastDisplayUpdateMs = 0;  // Reset throttle timer
+    lastRoboEyesUpdateMs = 0; // Reset eyes update timer
+    displayNeedsUpdate = true;
+    
+    // Clear display for new face
+    display.clearDisplay();
+    
+    // If switching to eyes, force immediate eyes update
+    if (mode == FACE_EYES) {
+      Serial.println("[FACE] Switching to EYES - forcing eyes update");
+      Eyes.update();
+      display.display();
+    }
+    
     if (ENABLE_MODE_SFX) {
       if (mode == FACE_NOTIF) {
         Audio::sfxNotify();
@@ -1344,21 +1448,24 @@ void loop() {
     wakeUp(); // Wake up on gesture
   }
 
-  // Triple-tap TOUCH_UP toggles silent/chatty mode
-  if (touchUpTripleTap()) {
-    wakeUp(); // Wake up on triple-tap
+  // Silent mode toggle - double-tap TOUCH_UP
+  if (touchUpDoubleTap()) {
+    Serial.println("[SILENT] Double-tap UP - toggling silent mode");
+    wakeUp(); // Wake up on double-tap
     silentMode = !silentMode;
     if (silentMode) {
       savedVolume = volume;
       volume = 0;
       Audio::setMasterVolume(0);
       if (ENABLE_MODE_SFX) Audio::sfxError();
-      showToast("Silent mode 🤫", 1200);Serial.println("Silent mode");
+      showToast("Silent mode 🤫", 1200);
+      Serial.println("Silent mode enabled");
     } else {
       volume = savedVolume;
       Audio::setMasterVolume(volume);
       if (ENABLE_MODE_SFX) Audio::sfxConfirm();
-      showToast("Chatty mode 🎵", 1200);Serial.println("Chatty mode");
+      showToast("Chatty mode 🎵", 1200);
+      Serial.println("Chatty mode enabled");
     }
   }
 
@@ -1448,12 +1555,30 @@ void loop() {
 
         // Draw toast overlay every loop so it wins over any eyes repaint
         drawToastIfAny(display);
+        
+        // Draw sound direction indicator if microphone is active
+        if (ENABLE_MIC_LISTENING && Audio::isLoudNoiseDetected()) {
+          float soundDir = Audio::getSoundDirection();
+          if (abs(soundDir) > 0.2f) {
+            drawSoundDirectionIndicator(soundDir);
+          }
+        }
+        
         display.display();
         displayNeedsUpdate = false;
         lastDisplayUpdateMs = currentMs;
       } else if (currentMs - lastDisplayUpdateMs >= DISPLAY_UPDATE_MS) {
         // Normal throttled frame when no toast
         drawToastIfAny(display); // no-op when no toast
+        
+        // Draw sound direction indicator even without toast (for continuous tracking)
+        if (ENABLE_MIC_LISTENING && Audio::isLoudNoiseDetected()) {
+          float soundDir = Audio::getSoundDirection();
+          if (abs(soundDir) > 0.2f) {
+            drawSoundDirectionIndicator(soundDir);
+          }
+        }
+        
         if (displayNeedsUpdate) {
           display.display();
           displayNeedsUpdate = false;

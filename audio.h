@@ -43,8 +43,15 @@ namespace Audio {
   // === Microphone Input Support ===
   bool beginMicrophone(uint32_t sampleRate = MIC_SAMPLE_RATE);
   void endMicrophone();
-  float getMicrophoneLevel();  // Returns current RMS level
+  float getMicrophoneLevel();  // Returns current RMS level (average of both channels)
   bool isLoudNoiseDetected();  // Returns true if noise above threshold
+
+  // === Stereo Microphone Support ===
+  float getMicrophoneLevelLeft();   // Left channel RMS level
+  float getMicrophoneLevelRight();  // Right channel RMS level
+  float getSoundDirection();        // Returns -1.0 (left) to +1.0 (right), 0.0 (center)
+  bool isSoundFromLeft();           // True if sound predominantly from left
+  bool isSoundFromRight();          // True if sound predominantly from right
 
   // Audio feedback prevention
   bool isAudioPlaying();       // Returns true if any audio is currently playing

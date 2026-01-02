@@ -51,8 +51,12 @@ namespace Audio {
   // === Microphone Input Support ===
   static bool micEnabled = false;
   static uint32_t micSampleRate = 16000;
-  static int16_t micBuffer[MIC_BUFFER_SIZE];
-  static float currentMicLevel = 0.0f;
+  static int16_t micBufferLeft[MIC_BUFFER_SIZE];   // Left channel buffer
+  static int16_t micBufferRight[MIC_BUFFER_SIZE];  // Right channel buffer
+  static int16_t micBufferStereo[MIC_BUFFER_SIZE * 2]; // Interleaved stereo buffer
+  static float currentMicLevelLeft = 0.0f;   // Left channel RMS
+  static float currentMicLevelRight = 0.0f;  // Right channel RMS
+  static float currentMicLevel = 0.0f;       // Average RMS (backward compatibility)
   static uint32_t lastMicReadMs = 0;
 
   // Audio feedback prevention
@@ -114,7 +118,9 @@ namespace Audio {
 
     // Skip microphone reading during audio playback and cooldown period
     if (audioPlaybackActive || (currentMs - lastAudioPlaybackMs < MIC_FEEDBACK_COOLDOWN_MS)) {
-      currentMicLevel = 0.0f; // Reset level to avoid false readings
+      currentMicLevel = 0.0f;
+      currentMicLevelLeft = 0.0f;
+      currentMicLevelRight = 0.0f;
       return;
     }
 
@@ -125,25 +131,44 @@ namespace Audio {
     }
 
     size_t bytesRead = 0;
-    esp_err_t result = i2s_read(I2S_PORT, micBuffer, sizeof(micBuffer), &bytesRead,
-                                pdMS_TO_TICKS(50)); // Increased timeout for better stability
+    // Read stereo interleaved data (L, R, L, R, ...)
+    esp_err_t result = i2s_read(I2S_PORT, micBufferStereo, sizeof(micBufferStereo), &bytesRead,
+                                pdMS_TO_TICKS(50));
 
     if (result == ESP_OK && bytesRead > 0) {
-      size_t samplesRead = bytesRead / sizeof(int16_t);
-      if (samplesRead > 0) {
-        currentMicLevel = calculateRMS(micBuffer, samplesRead);
+      size_t samplesRead = bytesRead / sizeof(int16_t); // Total samples (both channels)
+      size_t stereoFrames = samplesRead / 2; // Number of L+R pairs
+      
+      if (stereoFrames > 0) {
+        // De-interleave stereo data into separate left/right buffers
+        for (size_t i = 0; i < stereoFrames; i++) {
+          micBufferLeft[i] = micBufferStereo[i * 2];      // Left channel (even indices)
+          micBufferRight[i] = micBufferStereo[i * 2 + 1]; // Right channel (odd indices)
+        }
+        
+        // Calculate RMS for each channel
+        currentMicLevelLeft = calculateRMS(micBufferLeft, stereoFrames);
+        currentMicLevelRight = calculateRMS(micBufferRight, stereoFrames);
+        
+        // Average for backward compatibility
+        currentMicLevel = (currentMicLevelLeft + currentMicLevelRight) / 2.0f;
+        
         lastMicReadMs = currentMs;
 
-        // Enhanced debug output with RMS level
+        // Enhanced debug output with stereo levels
         static uint32_t lastSampleDebug = 0;
         if (currentMs - lastSampleDebug > 5000) { // Every 5 seconds
-          int16_t minSample = 32767, maxSample = -32768;
-          for (size_t i = 0; i < min(samplesRead, (size_t)10); i++) {
-            if (micBuffer[i] < minSample) minSample = micBuffer[i];
-            if (micBuffer[i] > maxSample) maxSample = micBuffer[i];
+          int16_t minL = 32767, maxL = -32768, minR = 32767, maxR = -32768;
+          for (size_t i = 0; i < min(stereoFrames, (size_t)10); i++) {
+            if (micBufferLeft[i] < minL) minL = micBufferLeft[i];
+            if (micBufferLeft[i] > maxL) maxL = micBufferLeft[i];
+            if (micBufferRight[i] < minR) minR = micBufferRight[i];
+            if (micBufferRight[i] > maxR) maxR = micBufferRight[i];
           }
-          Serial.printf("MIC: Level=%.3f, Range=[%d,%d], Samples=%d, Active=%s\n",
-                       currentMicLevel, minSample, maxSample, samplesRead,
+          Serial.printf("MIC STEREO: L=%.3f[%d,%d] R=%.3f[%d,%d] Dir=%.2f Active=%s\n",
+                       currentMicLevelLeft, minL, maxL,
+                       currentMicLevelRight, minR, maxR,
+                       getSoundDirection(),
                        (currentMicLevel > MIC_NOISE_THRESHOLD) ? "YES" : "no");
           lastSampleDebug = currentMs;
         }
@@ -164,7 +189,9 @@ namespace Audio {
           lastErrorTime = currentMs;
         }
       }
-      currentMicLevel = 0.0f; // Reset level on error
+      currentMicLevel = 0.0f;
+      currentMicLevelLeft = 0.0f;
+      currentMicLevelRight = 0.0f;
     }
   }
 
@@ -277,8 +304,8 @@ namespace Audio {
     pinMode(bclkPin, OUTPUT);
     pinMode(lrclkPin, OUTPUT);
     pinMode(dataOutPin, OUTPUT);
-    pinMode(I2S_DI, INPUT); // Microphone input
-    
+    pinMode(I2S_DI_RIGHT, INPUT); // Shared stereo microphone input
+
     // Set pins to safe state (LOW) initially
     digitalWrite(bclkPin, LOW);
     digitalWrite(lrclkPin, LOW);
@@ -290,7 +317,7 @@ namespace Audio {
     cfg.mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX | I2S_MODE_RX); // Enable both TX and RX
     cfg.sample_rate = (int)g_sampleRate;
     cfg.bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT;
-    cfg.channel_format = I2S_CHANNEL_FMT_ONLY_LEFT;
+    cfg.channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT; // Stereo input (both mics on same data pin)
     cfg.communication_format = I2S_COMM_FORMAT_STAND_I2S;
     cfg.dma_buf_count = 8; // Increased from 4 to reduce underruns
     cfg.dma_buf_len = 512; // Increased from 256 to reduce crackling
@@ -309,7 +336,10 @@ namespace Audio {
     pins.bck_io_num = bclkPin;
     pins.ws_io_num = lrclkPin;
     pins.data_out_num = dataOutPin;
-    pins.data_in_num = I2S_DI; // Microphone input
+    pins.data_in_num = I2S_DI_RIGHT; // Shared stereo microphone data line
+    // IMPORTANT: Both INMP441 mics must share the SAME data pin (I2S_DI_RIGHT)
+    // Left mic: L/R pin → GND (transmits when WS=LOW)
+    // Right mic: L/R pin → VDD (transmits when WS=HIGH)
     
     result = i2s_set_pin(I2S_PORT, &pins);
     if (result != ESP_OK) {
@@ -317,8 +347,8 @@ namespace Audio {
       return;
     }
     
-    // Set proper clock configuration for dual TX/RX mode
-    result = i2s_set_clk(I2S_PORT, g_sampleRate, I2S_BITS_PER_SAMPLE_16BIT, I2S_CHANNEL_MONO);
+    // Set proper clock configuration for dual TX/RX stereo mode
+    result = i2s_set_clk(I2S_PORT, g_sampleRate, I2S_BITS_PER_SAMPLE_16BIT, I2S_CHANNEL_STEREO);
     if (result != ESP_OK) {
       Serial.printf("I2S clock config failed: %d\n", result);
       return;
@@ -360,37 +390,42 @@ namespace Audio {
     if (micEnabled) return true; // Already enabled
 
     micSampleRate = sampleRate;
-    
-    Serial.printf("Initializing microphone at %d Hz on GPIO%d\n", micSampleRate, I2S_DI);
-    
-    // Test microphone pin first
-    pinMode(I2S_DI, INPUT);
-    int testRead = digitalRead(I2S_DI);
-    Serial.printf("Microphone pin test (GPIO%d): %s\n", I2S_DI, testRead ? "HIGH" : "LOW");
+
+    Serial.printf("Initializing stereo microphone at %d Hz on GPIO%d (shared data line)\n", 
+                  micSampleRate, I2S_DI_RIGHT);
+
+    // Test microphone data pin
+    pinMode(I2S_DI_RIGHT, INPUT);
+    int testPin = digitalRead(I2S_DI_RIGHT);
+    Serial.printf("Microphone data pin GPIO%d state: %s (idle state, will toggle during I2S operation)\n", 
+                  I2S_DI_RIGHT, testPin ? "HIGH" : "LOW");
     
     micEnabled = true;
     lastMicReadMs = 0;
     currentMicLevel = 0.0f;
+    currentMicLevelLeft = 0.0f;
+    currentMicLevelRight = 0.0f;
 
     // Give I2S time to settle after enabling RX mode
     delay(200); // Increased delay for better stability
 
-    Serial.printf("Microphone enabled at %d Hz with 8x gain\n", micSampleRate);
-    Serial.println("Testing microphone... speak or make noise to test sensitivity");
+    Serial.printf("Stereo microphone enabled at %d Hz with 8x gain\n", micSampleRate);
+    Serial.println("Testing microphones... speak or make noise to test sensitivity");
 
     // Test reading immediately with better error handling
     delay(500);
     
     // Clear any stale data first
     size_t bytesRead = 0;
-    esp_err_t result = i2s_read(I2S_PORT, micBuffer, sizeof(micBuffer), &bytesRead, pdMS_TO_TICKS(100));
+    esp_err_t result = i2s_read(I2S_PORT, micBufferStereo, sizeof(micBufferStereo), &bytesRead, pdMS_TO_TICKS(100));
     Serial.printf("Initial mic test - Result: %d, Bytes read: %d\n", result, bytesRead);
     
     readMicrophoneData();
-    Serial.printf("Initial mic level: %.3f (threshold: %.3f)\n", currentMicLevel, MIC_NOISE_THRESHOLD);
+    Serial.printf("Initial mic levels - Left: %.3f, Right: %.3f, Avg: %.3f (threshold: %.3f)\n", 
+                 currentMicLevelLeft, currentMicLevelRight, currentMicLevel, MIC_NOISE_THRESHOLD);
     
     if (currentMicLevel == 0.0f) {
-      Serial.println("WARNING: Microphone appears to be not working - check wiring");
+      Serial.println("WARNING: Microphones appear to be not working - check wiring");
       return false;
     }
 
@@ -410,6 +445,46 @@ namespace Audio {
     return currentMicLevel > MIC_NOISE_THRESHOLD;
   }
 
+  // === Stereo Microphone Functions ===
+  
+  float getMicrophoneLevelLeft() {
+    return currentMicLevelLeft;
+  }
+
+  float getMicrophoneLevelRight() {
+    return currentMicLevelRight;
+  }
+
+  float getSoundDirection() {
+    // Calculate normalized direction from -1.0 (left) to +1.0 (right)
+    // Returns 0.0 if sound is centered or if no sound detected
+    float totalLevel = currentMicLevelLeft + currentMicLevelRight;
+    if (totalLevel < MIC_NOISE_THRESHOLD * 0.5f) {
+      return 0.0f; // Too quiet to determine direction
+    }
+    
+    // Calculate balance: -1.0 (all left) to +1.0 (all right)
+    float balance = (currentMicLevelRight - currentMicLevelLeft) / (totalLevel + 0.001f);
+    
+    // Clamp to valid range
+    if (balance < -1.0f) balance = -1.0f;
+    if (balance > 1.0f) balance = 1.0f;
+    
+    return balance;
+  }
+
+  bool isSoundFromLeft() {
+    // Sound is from left if left channel is significantly louder
+    return (currentMicLevelLeft > currentMicLevelRight * 1.3f) && 
+           (currentMicLevelLeft > MIC_NOISE_THRESHOLD);
+  }
+
+  bool isSoundFromRight() {
+    // Sound is from right if right channel is significantly louder
+    return (currentMicLevelRight > currentMicLevelLeft * 1.3f) && 
+           (currentMicLevelRight > MIC_NOISE_THRESHOLD);
+  }
+
   // Check if audio is currently playing (for feedback prevention)
   bool isAudioPlaying() {
     return audioPlaybackActive;
@@ -426,22 +501,23 @@ namespace Audio {
     
     // Test pin configuration
     Serial.printf("I2S Pin Configuration:\n");
-    Serial.printf("  BCLK:  GPIO%d\n", I2S_BCLK);
-    Serial.printf("  LRC:   GPIO%d\n", I2S_LRC);
-    Serial.printf("  DO:    GPIO%d\n", I2S_DO);
-    Serial.printf("  DI:    GPIO%d\n", I2S_DI);
+    Serial.printf("  BCLK:     GPIO%d\n", I2S_BCLK);
+    Serial.printf("  LRC:      GPIO%d\n", I2S_LRC);
+    Serial.printf("  DO:       GPIO%d\n", I2S_DO);
+    Serial.printf("  DI (Stereo Mics): GPIO%d\n", I2S_DI_RIGHT);
     
     // Test pin states
     Serial.printf("Pin States:\n");
-    Serial.printf("  BCLK:  %s\n", digitalRead(I2S_BCLK) ? "HIGH" : "LOW");
-    Serial.printf("  LRC:   %s\n", digitalRead(I2S_LRC) ? "HIGH" : "LOW");
-    Serial.printf("  DO:    %s\n", digitalRead(I2S_DO) ? "HIGH" : "LOW");
-    Serial.printf("  DI:    %s\n", digitalRead(I2S_DI) ? "HIGH" : "LOW");
+    Serial.printf("  BCLK:     %s\n", digitalRead(I2S_BCLK) ? "HIGH" : "LOW");
+    Serial.printf("  LRC:      %s\n", digitalRead(I2S_LRC) ? "HIGH" : "LOW");
+    Serial.printf("  DO:       %s\n", digitalRead(I2S_DO) ? "HIGH" : "LOW");
+    Serial.printf("  DI (Shared): %s\n", digitalRead(I2S_DI_RIGHT) ? "HIGH" : "LOW");
     
     // Audio system status
     Serial.printf("Audio System:\n");
     Serial.printf("  Master Volume: %d/255\n", g_masterVol);
     Serial.printf("  Sample Rate: %d Hz\n", g_sampleRate);
+    Serial.printf("  Mic Enabled: %s\n", micEnabled ? "YES (STEREO)" : "NO");
     Serial.printf("  Active Voices: ");
     int activeCount = 0;
     for (int i = 0; i < MAX_VOICES; i++) {
