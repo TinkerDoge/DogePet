@@ -7,94 +7,201 @@
 #include <Adafruit_SH110X.h>
 #include "include/config.h"
 
-// External controls for RoboEyes library
+// External controls for RoboEyes library (Legacy, managed by Face module now)
 bool gEyesAutoFlush = true;
 int gEyesViewportYMax = 0;
 
-#include "include/FluxGarage_RoboEyes.h"
+// Modules
+#include "include/Face.h"
+#include "include/Motion.h"
+#include "include/Audio.h"
+#include "include/Animation.h"
+#include "include/Power.h"
+#include "include/Haptics.h"
+#include "include/LED.h"
+#include "include/Touch.h"
 #include "include/serial_cmd.h"
+#include "include/Events.h"
+
+// Boot state machine
+enum BootState { 
+  BOOT_INIT, 
+  BOOT_DISPLAY_TEST, 
+  BOOT_IMU_TEST, 
+  BOOT_AUDIO_TEST, 
+  BOOT_HAPTIC_TEST, 
+  BOOT_POWER_TEST, 
+  BOOT_ANIMATION, 
+  BOOT_DONE 
+};
+static BootState bootState = BOOT_INIT;
 
 // =============================================================================
-// HARDWARE OBJECTS
-// =============================================================================
-Adafruit_SH1106G display(SCREEN_W, SCREEN_H, &Wire, OLED_RESET);
-roboEyes Eyes(display);
-
-// =============================================================================
-// TIMING
-// =============================================================================
-static uint32_t lastUpdateMs = 0;
-
-// =============================================================================
-// SETUP
+// SETUP - Pin configuration and peripheral initialization ONLY
 // =============================================================================
 void setup() {
+  // Serial
   Serial.begin(115200);
-  
-  // Wait a moment for Serial to initialize
-  delay(100);
-
-  // Load Hardware Config (Pins)
-  loadHardwareConfig();
-  HardwareConfig* config = getHardwareConfig();
-
-  // Initialize I2C
-  Wire.begin(config->i2c_sda, config->i2c_scl, 400000);
-
-  // Initialize display
-  if (!display.begin(SCREEN_ADDR, true)) {
-    Serial.println("{\"status\":\"error\",\"msg\":\"OLED not found\"}");
-    while (1) delay(100);
-  }
-  display.clearDisplay();
-  display.setTextColor(SH110X_WHITE);
-  display.setCursor(0, 0);
-  display.println("DogePet");
-  display.println("Waiting for");
-  display.println("companion...");
-  display.display();
-
-  // Initialize RoboEyes
-  Eyes.begin(SCREEN_W, SCREEN_H, 50);
-  Eyes.setWidth(EYE_WIDTH, EYE_WIDTH);
-  Eyes.setHeight(EYE_HEIGHT, EYE_HEIGHT);
-  Eyes.setBorderradius(EYE_BORDER_RADIUS, EYE_BORDER_RADIUS);
-  Eyes.setSpacebetween(EYE_SPACING);
-  Eyes.setAutoblinker(true, 3, 4);
-  Eyes.setIdleMode(true, 4, 5);
-
-  // Button setup (TPP223 touch sensor - Active HIGH, needs pull-down)
-  pinMode(config->func_btn, INPUT_PULLDOWN);
-
-  // Initialize Serial command handler
-  setupSerialCmd(&Eyes);
-
   delay(500);
-  display.clearDisplay();
+
+  // I2C Bus
+  Wire.begin(I2C_SDA, I2C_SCL, 400000);
+  delay(100);
+  
+  // Initialize hardware modules (pin setup + peripheral init only)
+  Power::init();
+  Haptics::init();
+  LED::init();
+  Touch::init();
+  Face::init();
+  Motion::init();
+  Audio::init();
+  Animation::init();
+  Events::init();
+  
+  // Serial command handler
+  setupSerialCmd(Face::getEyes());
+}
+
+// =============================================================================
+// BOOT SEQUENCE - Hardware tests & startup animation (runs once in loop)
+// =============================================================================
+void runBootSequence() {
+  switch (bootState) {
+    case BOOT_INIT:
+      // I2C Bus Scan
+      Serial.println("{\"status\":\"info\",\"msg\":\"I2C Scan...\"}");
+      for (uint8_t addr = 1; addr < 127; addr++) {
+        Wire.beginTransmission(addr);
+        if (Wire.endTransmission() == 0) {
+          Serial.printf("{\"status\":\"info\",\"msg\":\"I2C device at 0x%02X\"}\n", addr);
+        }
+      }
+      Face::showBootScreen("Booting...");
+      delay(300);
+      bootState = BOOT_DISPLAY_TEST;
+      break;
+      
+    case BOOT_DISPLAY_TEST:
+      Face::updateProgressBar(10, "Display Test");
+      Face::playLineAnimation();
+      bootState = BOOT_IMU_TEST;
+      break;
+      
+    case BOOT_IMU_TEST:
+      Face::updateProgressBar(25, "Calibrate IMU...");
+      Motion::calibrate();
+      delay(200);
+      if (Motion::isReady()) {
+        Face::updateProgressBar(35, "IMU OK");
+        Serial.println("{\"status\":\"info\",\"msg\":\"Motion Sensor OK\"}");
+      } else {
+        Face::updateProgressBar(35, "IMU Fail");
+        Serial.println("{\"status\":\"error\",\"msg\":\"Motion Sensor Fail\"}");
+      }
+      delay(300);
+      bootState = BOOT_AUDIO_TEST;
+      break;
+      
+    case BOOT_AUDIO_TEST:
+      Face::updateProgressBar(50, "Mic Test");
+      {
+        int mic = Audio::readMicDB();
+        Serial.printf("{\"status\":\"info\",\"msg\":\"Mic Level: %ddB\"}\n", mic);
+        char msg[24];
+        snprintf(msg, sizeof(msg), "Mic: %ddB", mic);
+        Face::updateProgressBar(55, msg);
+      }
+      delay(300);
+      Face::updateProgressBar(60, "Speaker Test");
+      Audio::playTone(440, 150);
+      delay(200);
+      bootState = BOOT_HAPTIC_TEST;
+      break;
+      
+    case BOOT_HAPTIC_TEST:
+      Face::updateProgressBar(70, "Haptic Test");
+      // Test basic click
+      Haptics::click();
+      delay(200);
+      // Test purr briefly to verify it works
+      Serial.println("{\"status\":\"info\",\"msg\":\"Testing purr...\"}");
+      Haptics::startPurr();
+      for (int i = 0; i < 30; i++) {  // Run purr for ~300ms
+          Haptics::purrTick();
+          delay(10);
+      }
+      Haptics::stopPurr();
+      delay(100);
+      bootState = BOOT_POWER_TEST;
+      break;
+      
+    case BOOT_POWER_TEST:
+      {
+        int batt = Power::getPercent();
+        char msg[20];
+        snprintf(msg, sizeof(msg), "Batt: %d%%", batt);
+        Face::updateProgressBar(80, msg);
+        Serial.printf("{\"status\":\"info\",\"msg\":\"Batt: %d%%\"}\n", batt);
+      }
+      delay(300);
+      bootState = BOOT_ANIMATION;
+      break;
+      
+    case BOOT_ANIMATION:
+      Face::updateProgressBar(90, "Wake Up...");
+      Animation::playStartupSequence();
+      Face::updateProgressBar(100, "Ready!");
+      delay(400);
+      
+      // Enable eye behaviors
+      {
+        roboEyes* eyes = Face::getEyes();
+        eyes->setAutoblinker(true, 3, 4);
+        eyes->setIdleMode(true, 4, 5);
+      }
+      
+      Serial.println("{\"status\":\"info\",\"msg\":\"Boot Complete\"}");
+      bootState = BOOT_DONE;
+      break;
+      
+    case BOOT_DONE:
+      break;
+  }
 }
 
 // =============================================================================
 // LOOP
 // =============================================================================
 void loop() {
-  uint32_t now = millis();
-
-  // Process incoming Serial commands from PC companion app
+  // Run boot sequence once (tests run here, safe for all GPIOs)
+  if (bootState != BOOT_DONE) {
+    runBootSequence();
+    return;  // Don't run normal loop until boot is done
+  }
+  
+  // Normal operation
   processSerialCmd();
-
-  // Throttled display update
-  if (now - lastUpdateMs >= DISPLAY_UPDATE_MS) {
-    Eyes.update();
-    lastUpdateMs = now;
-  }
-
-  // Simple button check (for testing)
-  HardwareConfig* config = getHardwareConfig();
-  static bool lastBtn = false;
-  bool btn = digitalRead(config->func_btn) == HIGH;
-  if (btn && !lastBtn) {
-    Eyes.blink();
-    Serial.println("{\"event\":\"button\",\"action\":\"pressed\"}");
-  }
-  lastBtn = btn;
+  
+  // Update touch sensors
+  Touch::update();
+  
+  // Handle touch events
+  Events::update();
+  
+  // Update haptics purr (non-blocking)
+  Haptics::purrTick();
+  
+  // Update Motion Sensor (logs data on change)
+  Motion::update();
+  
+  // Update face
+  Face::update();
+  Animation::tick();
 }
+
+// =============================================================================
+// TOUCH EVENT HANDLING
+// =============================================================================
+// Moved to Events.cpp
+

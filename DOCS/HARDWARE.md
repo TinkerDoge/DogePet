@@ -62,13 +62,14 @@ SDA    →    GPIO 6
 
 ---
 
-### IMU - MPU6050
+### IMU - MPU6050 / MPU6500
 
 | Parameter | Value |
 |-----------|-------|
-| **Type** | MPU6050 6-axis |
+| **Type** | MPU6050 or MPU6500 6-axis |
 | **Interface** | I2C (shared bus) |
 | **Address** | 0x68 |
+| **Device ID** | 0x34 (MPU6050) or 0x38/0x39 (MPU6500) |
 | **Features** | Accelerometer + Gyroscope |
 
 **Wiring:**
@@ -81,6 +82,8 @@ SCL    →    GPIO 5
 SDA    →    GPIO 6
 AD0    →    GND (address 0x68)
 ```
+
+**Note:** Some modules are actually MPU6500 variants that report device ID 0x38 instead of 0x34. The firmware handles both.
 
 ---
 
@@ -166,7 +169,9 @@ DIN    →    GPIO 48
 |-----------|-------|
 | **Type** | Coin/ERM vibration motor |
 | **Count** | 2 (Left + Right) |
-| **Control** | PWM via transistor/driver |
+| **Control** | PWM via LEDC (analogWrite) |
+| **GPIO Left** | 4 |
+| **GPIO Right** | 3 (strapping pin - handle with care) |
 
 **Wiring (with N-channel MOSFET or transistor):**
 ```
@@ -178,25 +183,44 @@ Right Gate →    GPIO 3
 
 **Note:** Do NOT connect motors directly to GPIO! Use a transistor (2N2222, 2N7000) or motor driver (DRV8833) with flyback diode.
 
+**Haptic Patterns:**
+- **Click**: Short 50ms pulse at full power
+- **Double Click**: Heartbeat pattern (lub-DUB)
+- **Alarm**: Rapid alternating left/right
+- **Purr**: Cat-like rhythmic pattern for petting feedback
+
 ---
 
-### Button
+### Button / Touch Sensor
 
 | Parameter | Value |
 |-----------|-------|
-| **Type** | Momentary pushbutton |
-| **Logic** | Active HIGH |
+| **Type** | TPP223 Capacitive Touch or Momentary Button |
+| **Logic** | Active HIGH (HIGH when touched/pressed) |
+| **GPIO** | 41 |
 | **Debounce** | 30ms (software) |
+| **Features** | Tap detection, Hold/Petting detection |
 
 **Wiring:**
 ```
-Button      ESP32-S3
+TPP223      ESP32-S3
 ──────      ────────
-Pin 1  →    GPIO 41
-Pin 2  →    3.3V
+VCC    →    3.3V
+GND    →    GND
+I/O    →    GPIO 41
 ```
 
-**Note:** Button is Active HIGH - reads HIGH when pressed. May need external pull-down resistor if using a simple switch, or use internal pull-down in software.
+**Touch Events:**
+- **Tap** (< 300ms): Triggers eye blink
+- **Hold** (> 400ms): Triggers "petting" mode with happy eyes + purr vibration
+
+**Optional Chin Touch:**
+A second touch sensor can be added on GPIO 1. Enable with `#define TOUCH_CHIN_ENABLED` in `config.h`.
+
+**Chin Behaviors:**
+- **Chin Tap**: Playful wink + chirp sound
+- **Chin Hold (scratches)**: Blissfully closes eyes + purr + content sound
+- **Combo (Head + Chin)**: Overwhelmed with love! Confused happy face + surprise beep
 
 ---
 

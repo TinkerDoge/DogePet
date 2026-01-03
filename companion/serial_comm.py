@@ -24,6 +24,17 @@ class SerialComm:
         self.on_event: Optional[Callable[[Dict[str, Any]], None]] = None
         self.log_buffer = collections.deque(maxlen=50) # Buffer last 50 lines
         
+        # Passive Sensor Caching
+        self.sensor_cache = {
+            "vbat": 0.0,
+            "vbat_pct": 0,
+            "mic_db": 0,
+            "ax": 0.0, "ay": 0.0, "az": 0.0,
+            "gx": 0.0, "gy": 0.0, "gz": 0.0,
+            "qw": 1.0, "qx": 0.0, "qy": 0.0, "qz": 0.0, # DMP Quaternion
+            "last_update": 0
+        }
+
     @staticmethod
     def list_ports() -> list:
         """List available COM ports"""
@@ -106,20 +117,34 @@ class SerialComm:
         
         try:
             with self.lock:
-                # Clear input buffer
-                self.port.reset_input_buffer()
-                
+                # Drain input buffer to logs (don't delete data!)
+                while self.port.in_waiting > 0:
+                    try:
+                        line = self.port.readline().decode('utf-8').strip()
+                        if line:
+                            self.log_buffer.append(line)
+                    except Exception:
+                        pass
+
                 # Send command
                 cmd_str = json.dumps(cmd) + "\n"
                 self.port.write(cmd_str.encode('utf-8'))
                 self.port.flush()
                 
                 # Read response (with timeout)
-                response_line = self.port.readline().decode('utf-8').strip()
+                # Helper to read non-empty line
+                response_line = None
+                start_t = time.time()
+                while (time.time() - start_t) < 1.0:
+                    if self.port.in_waiting > 0:
+                        line = self.port.readline().decode('utf-8').strip()
+                        if line:
+                            self.log_buffer.append(f"< {line}") # Log the response too
+                            response_line = line
+                            break
+                    time.sleep(0.005)
                 
                 if response_line:
-                    # Also log the response
-                    # self.log_buffer.append(f"< {response_line}") 
                     return json.loads(response_line)
                 else:
                     return {"status": "error", "msg": "No response"}
@@ -140,9 +165,12 @@ class SerialComm:
         """Get current settings from device"""
         return self.send_command({"cmd": "get_eyes"}) or {"status": "error"}
     
-    def trigger_action(self, action: str) -> Dict[str, Any]:
+    def trigger_action(self, action: str, value: Any = None) -> Dict[str, Any]:
         """Trigger an animation action"""
-        return self.send_command({"cmd": "action", "type": action}) or {"status": "error"}
+        cmd = {"cmd": "action", "type": action}
+        if value is not None:
+            cmd["value"] = value
+        return self.send_command(cmd) or {"status": "error"}
 
     def get_pinout(self) -> Dict[str, Any]:
         """Get current pinout from device"""
@@ -154,12 +182,24 @@ class SerialComm:
         return self.send_command(cmd) or {"status": "error"}
 
     def get_sensors(self) -> Dict[str, Any]:
-        """Get live sensor data"""
-        return self.send_command({"cmd": "get_sensors"}) or {"status": "error"}
+        """Get live sensor data (Returns cached values from passive stream)"""
+        # NO COMMAND SENT - Passive reading
+        data = self.sensor_cache.copy()
+        data["status"] = "ok"
+        return data
     
     def get_logs(self) -> list:
         """Get recent collected logs"""
         return list(self.log_buffer)
+
+    def get_config(self) -> Dict[str, Any]:
+        """Get runtime config from device"""
+        return self.send_command({"cmd": "get_config"}) or {"status": "error"}
+
+    def set_config(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """Update runtime config"""
+        cmd = {"cmd": "set_config", **config}
+        return self.send_command(cmd) or {"status": "error"}
 
     def _read_loop(self):
         """Background thread for reading events from device"""
@@ -167,23 +207,46 @@ class SerialComm:
             try:
                 if self.port and self.port.is_open and self.port.in_waiting:
                     with self.lock:
-                        line = self.port.readline().decode('utf-8').strip()
+                        line_bytes = self.port.readline()
+                        
+                    try:
+                        line = line_bytes.decode('utf-8').strip()
+                    except:
+                        line = ""
+
                     if line:
                         self.log_buffer.append(line)
                         try:
                             data = json.loads(line)
-                            # Handle events (like button presses)
+                            
+                            # INTERCEPT SENSOR DATA from Firmware Stream
+                            if data.get("type") == "imu":
+                                # Scale Raw Integers to Floats
+                                self.sensor_cache["ax"] = data.get("ax", 0) / 16384.0
+                                self.sensor_cache["ay"] = data.get("ay", 0) / 16384.0
+                                self.sensor_cache["az"] = data.get("az", 0) / 16384.0
+                                
+                                self.sensor_cache["gx"] = data.get("gx", 0) / 131.0
+                                self.sensor_cache["gy"] = data.get("gy", 0) / 131.0
+                                self.sensor_cache["gz"] = data.get("gz", 0) / 131.0
+                                
+                                self.sensor_cache["last_update"] = time.time()
+                            
+                            # Update other sensors
+                            if "vbat" in data: self.sensor_cache["vbat"] = data["vbat"]
+                            if "vbat_pct" in data: self.sensor_cache["vbat_pct"] = data["vbat_pct"]
+                            if "mic_db" in data: self.sensor_cache["mic_db"] = data["mic_db"]
+
+                            # Handle events
                             if "event" in data and self.on_event:
                                 self.on_event(data)
                         except json.JSONDecodeError:
                             pass
                 else:
-                    time.sleep(0.01)  # Small delay to prevent CPU spinning
+                    time.sleep(0.005)
             except Exception as e:
-                if self.running:
-                    print(f"[Serial] Read error: {e}")
-                    self.connected = False
-                break
+                # Keep thread alive
+                pass
 
 
 # Singleton instance

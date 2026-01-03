@@ -108,6 +108,12 @@ Used for testing hardware peripherals.
 | `test_vib_r_off` | - | Turn Right Vib Motor OFF |
 | `test_vib_seq1` | - | Trigger "Heartbeat" haptic seq |
 | `test_vib_seq2` | - | Trigger "Alarm" haptic seq |
+| `test_purr_start` | - | Start purr vibration pattern |
+| `test_purr_stop` | - | Stop purr vibration pattern |
+| `test_sfx_chirp` | - | Play chirp sound |
+| `test_sfx_purrr` | - | Play content "purrr" sound |
+| `test_sfx_surprise` | - | Play surprise beep |
+| `test_sfx_yawn` | - | Play yawn sound |
 | `test_oled_pattern`| - | Display test pattern on Screen |
 | `test_oled_clear` | - | Clear Screen |
 | `test_oled_text` | `"Hello"` | Display string on Screen |
@@ -170,7 +176,51 @@ Set various parameters for the eyes.
 
 ---
 
+## 6. Runtime Configuration
+
+### Get Config
+**Command:**
+```json
+{"cmd": "get_config"}
+```
+**Response:**
+```json
+{
+  "status": "ok",
+  "ledBrightness": 60,
+  "audioVolume": 100,
+  "audioSampleRate": 22050,
+  "displayUpdateMs": 30,
+  "btnDebounceMs": 30,
+  "deviceName": "DogePet"
+}
+```
+
+### Set Config
+**Command:**
+```json
+{"cmd": "set_config", "ledBrightness": 80, "audioVolume": 50}
+```
+**Response:**
+```json
+{"status": "ok"}
+```
+
+### Supported Parameters
+
+| Parameter | Type | Range | Description |
+| :--- | :--- | :--- | :--- |
+| `ledBrightness` | `int` | 0 - 255 | NeoPixel LED brightness |
+| `audioVolume` | `int` | 0 - 100 | Audio output volume % |
+| `audioSampleRate` | `int` | - | Audio sample rate (Hz) |
+| `displayUpdateMs` | `int` | - | Display update interval (ms) |
+| `btnDebounceMs` | `int` | - | Button debounce time (ms) |
+| `deviceName` | `string` | - | Device name (max 31 chars) |
+
+---
+
 ## Implementation Notes
 *   **JSON Parsing**: The firmware uses `ArduinoJson` to parse incoming lines.
 *   **Non-Blocking**: Ensure test commands (like sequences) rely on `millis()` or freeRTOS tasks if strict non-blocking behavior is needed, though simple `delay()` is acceptable for test modes.
 *   **Persistence**: Pin settings are stored in NVS under the `dogepet_hw` namespace.
+*   **Runtime Config**: Config settings are stored in NVS under the `dogepet_cfg` namespace.

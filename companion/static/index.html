@@ -120,6 +120,8 @@
                         <div class="card-body setting-group">
                             <label>I2C_SDA <input type="number" id="pin_sda" class="pin-input"></label>
                             <label>I2C_SCL <input type="number" id="pin_scl" class="pin-input"></label>
+                            <label>BTN_PIN <input type="number" id="pin_btn" class="pin-input"></label>
+                            <label>LED_PIN <input type="number" id="pin_led" class="pin-input"></label>
                         </div>
                     </div>
                 </div>
@@ -173,6 +175,13 @@
                             <label>I2S_LRC <input type="number" id="pin_i2s_lrc" class="pin-input"></label>
                         </div>
                     </div>
+                    <div class="game-card" style="margin-top: 15px;">
+                        <div class="card-header">VOLUME_CTRL</div>
+                        <div class="card-body setting-group">
+                            <label>VOLUME <span id="volumeVal">100</span>% <input type="range" id="volume_slider" min="0" max="100" value="100"></label>
+                            <label>LED_BRIGHTNESS <span id="ledBrightnessVal">60</span> <input type="range" id="led_brightness_slider" min="0" max="255" value="60"></label>
+                        </div>
+                    </div>
                 </div>
                 <div class="col-right">
                     <div class="game-card">
@@ -187,6 +196,13 @@
                             </div>
                         </div>
                     </div>
+                    <div class="game-card" style="margin-top: 15px;">
+                        <div class="card-header">LED_TEST</div>
+                        <div class="card-body action-grid">
+                            <button class="action-btn" data-action="test_led_on">LED_ON</button>
+                            <button class="action-btn" data-action="test_led_off">LED_OFF</button>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -194,35 +210,75 @@
             <div id="tab-mpu" class="tab-content dashboard-grid">
                  <div class="col-left">
                     <div class="game-card">
-                        <div class="card-header">CONFIG</div>
+                        <div class="card-header">ACCELEROMETER</div>
                         <div class="card-body">
-                            <p>Uses Shared I2C Bus</p>
-                            <label>ADDR: 0x68 (Fixed)</label>
-                            <hr style="border-color:#333">
-                            <div>ACC_X: <span id="acc-x">0</span></div>
-                            <div>ACC_Y: <span id="acc-y">0</span></div>
-                            <div>ACC_Z: <span id="acc-z">0</span></div>
+                            <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:10px; text-align:center;">
+                                <div><div style="font-size:0.7rem; opacity:0.6;">X</div><div style="font-size:1.2rem; color:var(--accent-pink);" id="acc-x">0</div></div>
+                                <div><div style="font-size:0.7rem; opacity:0.6;">Y</div><div style="font-size:1.2rem; color:var(--accent-green);" id="acc-y">0</div></div>
+                                <div><div style="font-size:0.7rem; opacity:0.6;">Z</div><div style="font-size:1.2rem; color:var(--accent-blue);" id="acc-z">0</div></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="game-card" style="margin-top:10px;">
+                        <div class="card-header">GYROSCOPE (°/s)</div>
+                        <div class="card-body">
+                            <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:10px; text-align:center;">
+                                <div><div style="font-size:0.7rem; opacity:0.6;">GX</div><div style="font-size:1.2rem; color:var(--accent-pink);" id="gyro-x">0</div></div>
+                                <div><div style="font-size:0.7rem; opacity:0.6;">GY</div><div style="font-size:1.2rem; color:var(--accent-green);" id="gyro-y">0</div></div>
+                                <div><div style="font-size:0.7rem; opacity:0.6;">GZ</div><div style="font-size:1.2rem; color:var(--accent-blue);" id="gyro-z">0</div></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="game-card" style="margin-top:10px;">
+                        <div class="card-header">ACTIONS</div>
+                        <div class="card-body action-grid">
+                            <button class="action-btn" data-action="test_mpu_read">LOG_RAW_DATA</button>
+                            <label style="display:flex; align-items:center; gap:5px; font-size:0.7rem;">
+                                <input type="checkbox" id="mpu-fast-poll"> Fast Update (100ms)
+                            </label>
                         </div>
                     </div>
                 </div>
                 <div class="col-right">
                     <div class="game-card">
                         <div class="card-header">3D_ORIENTATION</div>
-                        <div class="card-body" style="height: 300px; display: flex; align-items: center; justify-content: center;">
-                            <div class="scene">
-                                <div class="cube" id="mpu-cube">
-                                    <div class="cube-face front">FRONT</div>
-                                    <div class="cube-face back">BACK</div>
-                                    <div class="cube-face right">RIGHT</div>
-                                    <div class="cube-face left">LEFT</div>
-                                    <div class="cube-face top">TOP</div>
-                                    <div class="cube-face bottom">BOTTOM</div>
+                        <div class="card-body" style="height: 500px; position: relative; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); border-radius: 8px; overflow:hidden;">
+                            <!-- Model Viewer for YETI.glb -->
+                            <model-viewer 
+                                id="mpu-model"
+                                src="YETI.glb" 
+                                alt="Yeti 3D Model"
+                                camera-controls
+                                disable-zoom
+
+                                shadow-intensity="1"
+                                style="width: 100%; height: 100%;"
+                                orientation="180deg 0deg 0deg">
+                            </model-viewer>
+                            
+                            <!-- Axis Helper Overlay -->
+                            <div class="axis-container" style="position: absolute; bottom: 10px; right: 10px; width: 60px; height: 60px; pointer-events: none; perspective: 1000px; z-index: 100;">
+                                <div id="axis-base" style="position: relative; width: 100%; height: 100%; transform-style: preserve-3d;">
+                                    <!-- X Axis (Red) - RIGHT -->
+                                    <div style="position: absolute; bottom: 0; left: 0; width: 40px; height: 2px; background: #fe4a49; transform-origin: 0 50%; transform: rotateY(0deg);"></div>
+                                    <div style="position: absolute; bottom: 0; left: 45px; color:#fe4a49; font-size:10px;">X</div>
+                                    
+                                    <!-- Y Axis (Green) - UP -->
+                                    <div style="position: absolute; bottom: 0; left: 0; width: 2px; height: 40px; background: #00ebc7; transform-origin: 50% 100%; transform: rotateX(0deg);"></div>
+                                    <div style="position: absolute; bottom: 45px; left: -3px; color:#00ebc7; font-size:10px;">Y</div>
+                                    
+                                    <!-- Z Axis (Blue) - DEPTH/FORWARD -->
+                                    <div style="position: absolute; bottom: 0; left: 0; width: 2px; height: 40px; background: #297afb; transform-origin: 50% 100%; transform: rotateX(90deg);"></div>
+                                    <div style="position: absolute; bottom: 5px; left: 10px; transform: rotateX(90deg) translateZ(35px); color:#297afb; font-size:10px;">Z</div>
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
+            
+            <!-- Load Model Viewer Script -->
+            <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/3.4.0/model-viewer.min.js"></script>
 
             <!-- TAB: BATTERY -->
             <div id="tab-bat" class="tab-content dashboard-grid">

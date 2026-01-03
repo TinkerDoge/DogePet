@@ -95,7 +95,8 @@ def trigger_action():
     
     data = request.get_json() or {}
     action = data.get('action', 'blink')
-    result = serial_comm.trigger_action(action)
+    value = data.get('value')
+    result = serial_comm.trigger_action(action, value)
     return jsonify(result)
 
 @app.route('/api/pinout', methods=['GET', 'POST'])
@@ -127,6 +128,18 @@ def get_logs():
         "status": "ok", 
         "logs": serial_comm.get_logs()
     })
+
+@app.route('/api/config', methods=['GET', 'POST'])
+def handle_config():
+    """Get or Set runtime configuration"""
+    if not serial_comm.connected:
+        return jsonify({"status": "error", "msg": "Not connected"})
+    
+    if request.method == 'GET':
+        return jsonify(serial_comm.get_config())
+    else:
+        data = request.get_json() or {}
+        return jsonify(serial_comm.set_config(data))
 
 # =============================================================================
 # MAIN

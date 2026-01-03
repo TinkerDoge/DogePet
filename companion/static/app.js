@@ -300,8 +300,8 @@ function initEventListeners() {
                     i2s_bclk: val('pin_i2s_bclk'),
                     i2s_lrc: val('pin_i2s_lrc'),
                     // REST
-                    btn: val('pin_btn'), // Might need to add this back to UI or assume fixed
-                    led: val('pin_led'), // Assuming this is now "OLED" tab or similar? Wait, user removed specific LED tab? No, LED usually global. Let's keep looking.
+                    btn: val('pin_btn'), 
+                    led: val('pin_led'),
                     vibL: val('pin_vibL'),
                     vibR: val('pin_vibR'),
                     vbat: val('pin_vbat')
@@ -330,28 +330,48 @@ function initEventListeners() {
         });
     }
 
-    // Tab Loop for sensors (Only poll if active)
-    setInterval(() => {
-        if (!state.connected) return;
-        
-        // Battery Tab
-        if (document.getElementById('tab-bat') && document.getElementById('tab-bat').classList.contains('active')) {
-             updateBattery();
-        }
-        // Mic Tab
-        if (document.getElementById('tab-mic') && document.getElementById('tab-mic').classList.contains('active')) {
-             updateMic();
-        }
-        // MPU Tab
-        if (document.getElementById('tab-mpu') && document.getElementById('tab-mpu').classList.contains('active')) {
-             updateMPU();
-        }
-    }, 500); // 2Hz poll for responsiveness
+    // Start polling loop
+    pollSensors();
 
     // Connection Controls
     document.getElementById('refreshBtn').addEventListener('click', fetchPorts);
     document.getElementById('connectBtn').addEventListener('click', toggleConnection);
 }
+
+// Dynamic polling loop
+function pollSensors() {
+    if (!state.connected) {
+        setTimeout(pollSensors, 1000);
+        return;
+    }
+
+    let interval = 500; // Default 2Hz
+    
+    // MPU Tab - Check for fast poll
+    const mpuTab = document.getElementById('tab-mpu');
+    if (mpuTab && mpuTab.classList.contains('active')) {
+        const fastPoll = document.getElementById('mpu-fast-poll');
+        if (fastPoll && fastPoll.checked) {
+            interval = 40; // ~25Hz
+        }
+        updateMPU();
+    }
+    
+    // Other tabs - run if not too fast (limit to 500ms approx check)
+    // For simplicity, just run them. 
+    // Battery Tab
+    if (document.getElementById('tab-bat') && document.getElementById('tab-bat').classList.contains('active')) {
+         updateBattery();
+    }
+    // Mic Tab
+    if (document.getElementById('tab-mic') && document.getElementById('tab-mic').classList.contains('active')) {
+         updateMic();
+    }
+
+    setTimeout(pollSensors, interval);
+}
+
+
 
 // =============================================================================
 // API CALLS & VISUALIZATION
@@ -414,19 +434,84 @@ async function updateMPU() {
         const resp = await fetch('/api/sensors?type=mpu');
         const data = await resp.json();
         if (data.status === 'ok') {
-            if(document.getElementById('acc-x')) document.getElementById('acc-x').innerText = data.ax;
-            if(document.getElementById('acc-y')) document.getElementById('acc-y').innerText = data.ay;
-            if(document.getElementById('acc-z')) document.getElementById('acc-z').innerText = data.az;
+            // Round for display
+            const ax = typeof data.ax === 'number' ? data.ax.toFixed(2) : '--';
+            const ay = typeof data.ay === 'number' ? data.ay.toFixed(2) : '--';
+            const az = typeof data.az === 'number' ? data.az.toFixed(2) : '--';
             
-            // 3D Visualization
-            const cube = document.getElementById('mpu-cube');
-            if(cube) {
-                // Map accelerometer to rotation (rough approx)
-                // ax -> rotateY, ay -> rotateX
-                const rotX = data.ay * 90; 
-                const rotY = data.ax * 90;
-                // Maintain center pivot
-                cube.style.transform = `translateZ(-100px) rotateX(${rotX}deg) rotateY(${rotY}deg)`;
+            if(document.getElementById('acc-x')) document.getElementById('acc-x').innerText = ax;
+            if(document.getElementById('acc-y')) document.getElementById('acc-y').innerText = ay;
+            if(document.getElementById('acc-z')) document.getElementById('acc-z').innerText = az;
+            
+            // Gyro
+            const gx = typeof data.gx === 'number' ? data.gx.toFixed(1) : '--';
+            const gy = typeof data.gy === 'number' ? data.gy.toFixed(1) : '--';
+            const gz = typeof data.gz === 'number' ? data.gz.toFixed(1) : '--';
+
+            // 3D Visualization Logic
+            const model = document.getElementById('mpu-model');
+            if(model) {
+                let final_roll = 0, final_pitch = 0, final_yaw = 0;
+                let activeMode = "RAW";
+
+                // PREFERRED: DMP Quaternion - check if we have valid quaternion data
+                // Valid quaternion has w^2 + x^2 + y^2 + z^2 ≈ 1
+                const hasQuaternion = typeof data.qw === 'number' && 
+                    (Math.abs(data.qw) < 0.99 || Math.abs(data.qx) > 0.01 || Math.abs(data.qy) > 0.01 || Math.abs(data.qz) > 0.01);
+                
+                if (hasQuaternion) {
+                    activeMode = "DMP";
+                    const euler = getEuler({w:data.qw, x:data.qx, y:data.qy, z:data.qz});
+                    
+                    final_roll = euler.roll + 180; 
+                    final_pitch = euler.pitch;               
+                    final_yaw = euler.yaw;       
+
+                    // Override Text UI with Euler Angles for visibility
+                    if(document.getElementById('acc-x')) {
+                         document.getElementById('acc-x').innerText = "R:" + euler.roll.toFixed(1);
+                         document.getElementById('acc-x').style.fontSize = "0.8rem";
+                    }
+                    if(document.getElementById('acc-y')) {
+                        document.getElementById('acc-y').innerText = "P:" + euler.pitch.toFixed(1);
+                        document.getElementById('acc-y').style.fontSize = "0.8rem";
+                    }
+                    if(document.getElementById('acc-z')) {
+                        document.getElementById('acc-z').innerText = "Y:" + euler.yaw.toFixed(1);
+                        document.getElementById('acc-z').style.fontSize = "0.8rem";
+                    }
+                    
+                    // Show "DMP" in Gyro slots
+                    if(document.getElementById('gyro-x')) document.getElementById('gyro-x').innerText = "DMP";
+                    if(document.getElementById('gyro-y')) document.getElementById('gyro-y').innerText = "ACT";
+                    if(document.getElementById('gyro-z')) document.getElementById('gyro-z').innerText = "IVE";
+
+                } else if (typeof data.ax === 'number') {
+                    // FALLBACK: Raw Accel
+                    activeMode = "RAW";
+                    const ax = data.ax; const ay = data.ay; const az = data.az;
+                    
+                    if(document.getElementById('acc-x')) document.getElementById('acc-x').innerText = ax.toFixed(2);
+                    if(document.getElementById('acc-y')) document.getElementById('acc-y').innerText = ay.toFixed(2);
+                    if(document.getElementById('acc-z')) document.getElementById('acc-z').innerText = az.toFixed(2);
+                    
+                    if(document.getElementById('gyro-x')) document.getElementById('gyro-x').innerText = gx;
+                    if(document.getElementById('gyro-y')) document.getElementById('gyro-y').innerText = gy;
+                    if(document.getElementById('gyro-z')) document.getElementById('gyro-z').innerText = gz;
+
+                    const RAD_TO_DEG = 180 / Math.PI;
+                    const calc_roll = Math.atan2(ay, az) * RAD_TO_DEG;
+                    const calc_pitch = Math.atan2(-ax, Math.sqrt(ay*ay + az*az)) * RAD_TO_DEG;
+                    
+                    final_roll = 180 + calc_roll; 
+                    final_pitch = 0;
+                    final_yaw = calc_pitch;
+                }
+                
+                if (!simState.mpu) simState.mpu = {};
+                simState.mpu.targetRoll = final_roll;
+                simState.mpu.targetPitch = final_pitch;
+                simState.mpu.targetYaw = final_yaw;
             }
         }
     } catch(e) {}
@@ -454,10 +539,11 @@ async function toggleConnection() {
                 document.getElementById('status').classList.remove('disconnected');
                 document.getElementById('status').classList.add('connected');
                 document.getElementById('statusText').textContent = 'SYSTEM ONLINE';
-                document.getElementById('statusText').textContent = 'SYSTEM ONLINE';
                 getPinout(); // Fetch initial pinout on connect
-                if(data.settings) applySettings(data.settings); // Sync settings
-                alert(data.msg);
+                getConfig(); // Fetch initial config on connect
+                if(data.settings && data.settings.status === 'ok') applySettings(data.settings); // Sync settings
+                // Show success message
+                console.log('Connected to', data.port);
             }
         } catch (e) { alert('Connection Error'); }
     } else {
@@ -573,7 +659,72 @@ document.addEventListener('DOMContentLoaded', () => {
             sendAction('test_tone_custom', `${freq},${dur}`);
         });
     }
+    
+    // Config Sliders
+    const volumeSlider = document.getElementById('volume_slider');
+    if (volumeSlider) {
+        volumeSlider.addEventListener('input', (e) => {
+            const val = parseInt(e.target.value);
+            document.getElementById('volumeVal').textContent = val;
+        });
+        volumeSlider.addEventListener('change', () => {
+            sendConfig({ audioVolume: parseInt(volumeSlider.value) });
+        });
+    }
+    
+    const ledBrightnessSlider = document.getElementById('led_brightness_slider');
+    if (ledBrightnessSlider) {
+        ledBrightnessSlider.addEventListener('input', (e) => {
+            const val = parseInt(e.target.value);
+            document.getElementById('ledBrightnessVal').textContent = val;
+        });
+        ledBrightnessSlider.addEventListener('change', () => {
+            sendConfig({ ledBrightness: parseInt(ledBrightnessSlider.value) });
+        });
+    }
 });
+
+// Config API Functions
+async function getConfig() {
+    if (!state.connected) return;
+    try {
+        const resp = await fetch('/api/config');
+        const data = await resp.json();
+        if (data.status === 'ok') {
+            applyConfig(data);
+        }
+    } catch (e) {
+        console.error('Failed to get config:', e);
+    }
+}
+
+async function sendConfig(config) {
+    if (!state.connected) return;
+    try {
+        await fetch('/api/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(config)
+        });
+    } catch (e) {
+        console.error('Failed to send config:', e);
+    }
+}
+
+function applyConfig(config) {
+    if (config.audioVolume !== undefined) {
+        const slider = document.getElementById('volume_slider');
+        const label = document.getElementById('volumeVal');
+        if (slider) slider.value = config.audioVolume;
+        if (label) label.textContent = config.audioVolume;
+    }
+    if (config.ledBrightness !== undefined) {
+        const slider = document.getElementById('led_brightness_slider');
+        const label = document.getElementById('ledBrightnessVal');
+        if (slider) slider.value = config.ledBrightness;
+        if (label) label.textContent = config.ledBrightness;
+    }
+}
 
 // =============================================================================
 // EVENT HANDLERS
@@ -699,9 +850,53 @@ function applySettings(settings) {
 // =============================================================================
 function animationLoop(timestamp) {
     if (!simState.lastUpdate) simState.lastUpdate = timestamp;
+    // Calculate delta time
     const dt = timestamp - simState.lastUpdate;
     simState.lastUpdate = timestamp;
     
+    // Smooth Interpolation for 3D Model (Lerp)
+    // Factor 0.1 gives smooth motion, adjust as needed
+    const lerp = (start, end, amt) => (1 - amt) * start + amt * end;
+    
+    if (simState.mpu) {
+        // Initializes current values if not set
+        if (simState.mpu.currRoll === undefined) {
+             simState.mpu.currRoll = simState.mpu.targetRoll || 180;
+             simState.mpu.currPitch = simState.mpu.targetPitch || 0;
+             simState.mpu.currYaw = simState.mpu.targetYaw || 0;
+        }
+
+        const targetRoll = simState.mpu.targetRoll !== undefined ? simState.mpu.targetRoll : 180;
+        const targetPitch = simState.mpu.targetPitch !== undefined ? simState.mpu.targetPitch : 0;
+        const targetYaw = simState.mpu.targetYaw !== undefined ? simState.mpu.targetYaw : 0;
+
+        // Interpolate
+        simState.mpu.currRoll = lerp(simState.mpu.currRoll, targetRoll, 0.2);
+        simState.mpu.currPitch = lerp(simState.mpu.currPitch, targetPitch, 0.2);
+        simState.mpu.currYaw = lerp(simState.mpu.currYaw, targetYaw, 0.2);
+        
+        // Update Model-Viewer
+        const model = document.getElementById('mpu-model');
+        if (model) {
+            model.orientation = `${simState.mpu.currRoll}deg ${simState.mpu.currPitch}deg ${simState.mpu.currYaw}deg`;
+        }
+        
+        // Update Axis Helper (match orientation)
+        const axisBase = document.getElementById('axis-base');
+        if (axisBase) {
+             // CSS 3D Rotation Order: usually Z Y X or similar.
+             // ModelViewer orientation="roll pitch yaw" -> X Y Z extrinsic? or intrinsic?
+             // Documentation says: "roll pitch yaw" in degrees.
+             // To match Visuals:
+             // We need to construct a CSS transform that does the same.
+             // Try: rotateX(roll) rotateY(pitch) rotateZ(yaw)?
+             // Or rotateZ(yaw) rotateY(pitch) rotateX(roll)?
+             // Standard Euler: rotateZ * rotateY * rotateX.
+             axisBase.style.transform = `rotateX(${simState.mpu.currRoll}deg) rotateY(${simState.mpu.currPitch}deg) rotateZ(${simState.mpu.currYaw}deg)`; 
+        }
+    }
+
+    // Existing OLED Animation logic...
     updateSimulation(timestamp);
     renderPreview();
     
@@ -1070,3 +1265,28 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 });
+
+// Helper: Quaternion to Euler (Degrees)
+function getEuler(q) {
+    const norm = Math.sqrt(q.w*q.w + q.x*q.x + q.y*q.y + q.z*q.z);
+    const w = q.w/norm, x = q.x/norm, y = q.y/norm, z = q.z/norm;
+
+    const sinr_cosp = 2 * (w * x + y * z);
+    const cosr_cosp = 1 - 2 * (x * x + y * y);
+    const roll = Math.atan2(sinr_cosp, cosr_cosp);
+
+    const sinp = 2 * (w * y - z * x);
+    let pitch;
+    if (Math.abs(sinp) >= 1) pitch = Math.sign(sinp) * Math.PI / 2; 
+    else pitch = Math.asin(sinp);
+
+    const siny_cosp = 2 * (w * z + x * y);
+    const cosy_cosp = 1 - 2 * (y * y + z * z);
+    const yaw = Math.atan2(siny_cosp, cosy_cosp);
+
+    return {
+        roll: roll * (180/Math.PI),
+        pitch: pitch * (180/Math.PI),
+        yaw: yaw * (180/Math.PI)
+    };
+}
