@@ -117,6 +117,17 @@ def handle_sensors():
         return jsonify({"status": "error", "msg": "Not connected"})
     return jsonify(serial_comm.get_sensors())
 
+@app.route('/api/logs', methods=['GET'])
+def get_logs():
+    """Get recent serial logs"""
+    if not serial_comm.connected:
+        return jsonify({"status": "error", "msg": "Not connected"})
+    
+    return jsonify({
+        "status": "ok", 
+        "logs": serial_comm.get_logs()
+    })
+
 # =============================================================================
 # MAIN
 # =============================================================================
@@ -128,4 +139,20 @@ if __name__ == '__main__':
     print("\n  Open http://localhost:5000 in your browser\n")
     
     # Run Flask server
-    app.run(host='127.0.0.1', port=5000, debug=True, threaded=True)
+    # Watch static files for changes too so server restarts on JS/CSS updates
+    extra_files = []
+    if os.path.isdir('static'):
+        for dirname, dirs, files in os.walk('static'):
+            for filename in files:
+                filename = os.path.join(dirname, filename)
+                if os.path.isfile(filename):
+                    extra_files.append(filename)
+
+    app.run(
+        host='127.0.0.1', 
+        port=5000, 
+        debug=True, 
+        threaded=True, 
+        use_reloader=True, 
+        extra_files=extra_files
+    )

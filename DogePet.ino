@@ -5,13 +5,13 @@
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SH110X.h>
-#include "config.h"
+#include "include/config.h"
 
 // External controls for RoboEyes library
 bool gEyesAutoFlush = true;
 int gEyesViewportYMax = 0;
 
-#include "FluxGarage_RoboEyes.h"
+#include "include/FluxGarage_RoboEyes.h"
 #include "include/serial_cmd.h"
 
 // =============================================================================
@@ -63,8 +63,8 @@ void setup() {
   Eyes.setAutoblinker(true, 3, 4);
   Eyes.setIdleMode(true, 4, 5);
 
-  // Button setup
-  pinMode(config->func_btn, INPUT);
+  // Button setup (TPP223 touch sensor - Active HIGH, needs pull-down)
+  pinMode(config->func_btn, INPUT_PULLDOWN);
 
   // Initialize Serial command handler
   setupSerialCmd(&Eyes);

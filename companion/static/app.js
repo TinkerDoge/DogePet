@@ -23,6 +23,23 @@ const state = {
     }
 };
 
+// Simulation State for Preview
+const simState = {
+    lastUpdate: 0,
+    // Blink
+    nextBlinkTime: 0,
+    isBlinking: false,
+    blinkEndTime: 0,
+    // Idle
+    nextIdleTime: 0,
+    idlePosition: 0, // Override buffer
+    // Sweat
+    sweatY: 0,
+    sweatDir: 1,
+    // Cyclops Blink
+    isCyclopsBlinking: false
+};
+
 // Tab Switching Logic
 document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -106,6 +123,9 @@ document.addEventListener('DOMContentLoaded', () => {
     fetchPorts();
     renderPreview();
     
+    // Start Animation Loop
+    requestAnimationFrame(animationLoop);
+    
     // Poll for connection status
     setInterval(checkStatus, 3000);
 });
@@ -122,7 +142,7 @@ function initEventListeners() {
     document.querySelectorAll('input[type="range"]').forEach(slider => {
         slider.addEventListener('input', e => {
             const id = e.target.id;
-            const val = parseInt(e.target.value);
+            let val = parseInt(e.target.value);
             
             // Map slider ID to settings key
             let key = id;
@@ -130,6 +150,33 @@ function initEventListeners() {
             else if (id === 'height_slider') key = 'height';
             else if (id === 'radius_slider') key = 'radius';
             else if (id === 'spacing_slider') key = 'spacing';
+
+            // Constraint Logic (Screen is 128x64)
+            const s = state.settings;
+            
+            if (key === 'width') {
+                if (!s.cyclops) {
+                    const maxW = Math.floor((128 - s.spacing) / 2);
+                    if (val > maxW) val = maxW;
+                } else {
+                    if (val > 128) val = 128; // Full screen width for cyclops
+                }
+            } else if (key === 'spacing') {
+                if (!s.cyclops) {
+                    const maxSpace = 128 - (2 * s.width);
+                    if (val > maxSpace) val = maxSpace;
+                }
+            } else if (key === 'height') {
+                 if (val > 64) val = 64;
+            } else if (key === 'radius') {
+                const maxR = Math.floor(Math.min(s.width, s.height) / 2);
+                if (val > maxR) val = maxR;
+            }
+            
+            // Apply clamped value back to slider if changed
+            if (val !== parseInt(e.target.value)) {
+                e.target.value = val;
+            }
 
             state.settings[key] = val;
             
@@ -141,8 +188,12 @@ function initEventListeners() {
             );
             if (labelEl) labelEl.textContent = val + (id.includes('radius')||id.includes('spacing')?'px':'');
             
-            // Debounce send
-            sendSettings();
+            // Debounce send values to avoid flooding serial
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(() => {
+                sendSettings();
+            }, 50);
+
             renderPreview();
         });
     });
@@ -644,12 +695,82 @@ function applySettings(settings) {
 }
 
 // =============================================================================
+// ANIMATION LOOP
+// =============================================================================
+function animationLoop(timestamp) {
+    if (!simState.lastUpdate) simState.lastUpdate = timestamp;
+    const dt = timestamp - simState.lastUpdate;
+    simState.lastUpdate = timestamp;
+    
+    updateSimulation(timestamp);
+    renderPreview();
+    
+    requestAnimationFrame(animationLoop);
+}
+
+function updateSimulation(now) {
+    const s = state.settings;
+    
+    // --- BLINK LOGIC ---
+    if (s.autoBlink) {
+        if (!simState.isBlinking && now > simState.nextBlinkTime) {
+            // Start blink
+            simState.isBlinking = true;
+            simState.blinkEndTime = now + 150; // 150ms blink duration
+        } else if (simState.isBlinking && now > simState.blinkEndTime) {
+            // End blink
+            simState.isBlinking = false;
+            // Schedule next (3s +/- random)
+            simState.nextBlinkTime = now + 3000 + (Math.random() * 2000);
+        }
+    } else {
+        simState.isBlinking = false;
+        simState.nextBlinkTime = now + 1000;
+    }
+    
+    // --- IDLE LOGIC ---
+    if (s.idleMode) {
+        if (now > simState.nextIdleTime) {
+            // Change position
+            // Firmware logic: 50% chance center, 50% random
+            if (Math.random() > 0.5) {
+                simState.idlePosition = 0;
+            } else {
+                simState.idlePosition = Math.floor(Math.random() * 9);
+            }
+            simState.nextIdleTime = now + 2000 + (Math.random() * 2000);
+        }
+    } else {
+        simState.idlePosition = s.position; // Follow manual setting
+    }
+    
+    // --- SWEAT ANIMATION ---
+    if (s.sweat) {
+        // Simple bobbing
+        simState.sweatY += 0.2 * simState.sweatDir;
+        if (simState.sweatY > 3) simState.sweatDir = -1;
+        if (simState.sweatY < 0) simState.sweatDir = 1;
+    }
+}
+
+// =============================================================================
 // OLED PREVIEW RENDERER
 // =============================================================================
 function renderPreview() {
     const canvas = document.getElementById('oledCanvas');
     const ctx = oledCtx;
     const s = state.settings;
+    
+    // Determine effective render state
+    // Use manual setting if not in idle mode, else use simulated idle position
+    // BUT: If user explicitly clicks position, we usually want to see it. 
+    // For faithful preview, we show simulated state if Idle is ON.
+    const activePos = s.idleMode ? simState.idlePosition : s.position;
+    
+    // Effective Height (0 if blinking)
+    // Cyclops handles blinking separately? No, unified for simplicity unless specific
+    let effectiveH = s.height;
+    if (simState.isBlinking) effectiveH = 2; // Almost closed
     
     // NATIVE 128x64 resolution (CSS handles visual scaling)
     const screenW = 128;
@@ -667,9 +788,13 @@ function renderPreview() {
     const radius = s.radius;
     const spacing = s.spacing;
     
+    // Update Height for Blink
+    leftEyeH = effectiveH;
+    rightEyeH = effectiveH;
+
     // Curiosity effect: outer eye gets larger when looking sideways
     // The further from center, the more size difference
-    if (s.curiosity && !s.cyclops) {
+    if (s.curiosity && !s.cyclops && !simState.isBlinking) {
         const posOffsets = {
             0: [0, 0],       // Center - no effect
             1: [0, -10],     // N - no horizontal offset
@@ -682,7 +807,7 @@ function renderPreview() {
             8: [-15, -10]    // NW - looking left, left eye larger
         };
         
-        const [ox, _] = posOffsets[s.position] || [0, 0];
+        const [ox, _] = posOffsets[activePos] || [0, 0];
         
         // Calculate curiosity multiplier based on how far eyes are from center
         // More offset = more size difference (up to 30%)
@@ -734,7 +859,7 @@ function renderPreview() {
         8: [-15, -10]    // NW
     };
     
-    const [ox, oy] = posOffsets[s.position] || [0, 0];
+    const [ox, oy] = posOffsets[activePos] || [0, 0];
     leftEyeX += ox;
     leftEyeY += oy;
     if (!s.cyclops) {
@@ -775,7 +900,7 @@ function renderPreview() {
     
     // Draw sweat drops
     if (s.sweat) {
-        drawSweatDrops(ctx);
+        drawSweatDrops(ctx, simState.sweatY);
     }
 }
 
@@ -884,28 +1009,64 @@ function drawHappyEyelids(ctx, lx, ly, lw, lh, rx, ry, rw, rh, cyclops) {
     }
 }
 
-function drawSweatDrops(ctx) {
+function drawSweatDrops(ctx, offsetY = 0) {
     ctx.fillStyle = '#fff';  // White for white OLED
     
-    // Draw 3 small drops at top
+    // Draw 3 small drops at top with bobbing offset
     const drops = [[20, 8], [64, 5], [108, 10]];
     drops.forEach(([x, y]) => {
         ctx.beginPath();
-        ctx.ellipse(x, y, 3, 5, 0, 0, Math.PI * 2);
+        ctx.ellipse(x, y + offsetY, 3, 5, 0, 0, Math.PI * 2);
         ctx.fill();
     });
 }
 
 function animateBlink() {
-    const originalH = state.settings.height;
-    
-    // Close eyes
-    state.settings.height = 2;
-    renderPreview();
-    
-    // Open eyes after delay
-    setTimeout(() => {
-        state.settings.height = originalH;
-        renderPreview();
-    }, 150);
+    // Trigger simulation blink
+    simState.isBlinking = true;
+    simState.blinkEndTime = performance.now() + 150;
 }
+
+// =============================================================================
+// LOGGING
+// =============================================================================
+async function pollLogs() {
+    if (!state.connected || !document.getElementById('term-out')) return;
+    
+    try {
+        const res = await fetch('/api/logs');
+        const data = await res.json();
+        
+        if (data.status === 'ok') {
+            const term = document.getElementById('term-out');
+            const autoScroll = document.getElementById('auto-scroll').checked;
+            
+            // Replace content with latest buffer
+            term.innerHTML = '';
+            
+            data.logs.forEach(line => {
+                const d = document.createElement('div');
+                d.className = 'log-line';
+                d.textContent = line;
+                term.appendChild(d);
+            });
+            
+            if (autoScroll) {
+                term.scrollTop = term.scrollHeight;
+            }
+        }
+    } catch(e) {}
+}
+
+// Init Log Polling
+document.addEventListener('DOMContentLoaded', () => {
+    setInterval(pollLogs, 500);
+    
+    const clearBtn = document.getElementById('clearLogsBtn');
+    if(clearBtn) {
+        clearBtn.addEventListener('click', () => {
+             const term = document.getElementById('term-out');
+             if(term) term.innerHTML = '> LOGS CLEARED...';
+        });
+    }
+});

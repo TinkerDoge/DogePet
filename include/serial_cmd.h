@@ -3,12 +3,13 @@
 #pragma once
 
 #include <Arduino.h>
-#include "../FluxGarage_RoboEyes.h"
+#include "FluxGarage_RoboEyes.h"
 
 // Command string definitions (match WebApp_Protocol.md)
 #define CMD_CONNECT       "connect"
 #define CMD_SET_EYES      "set_eyes"
-#define CMD_GET_SETTINGS  "get_settings"
+#define CMD_GET_EYES      "get_eyes"      // primary per protocol
+#define CMD_GET_SETTINGS  "get_settings"  // compatibility alias
 #define CMD_ACTION        "action"
 #define CMD_SET_PINOUT    "set_pinout"
 #define CMD_GET_PINOUT    "get_pinout"

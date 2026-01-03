@@ -8,6 +8,7 @@ import serial.tools.list_ports
 import json
 import threading
 import time
+import collections
 from typing import Optional, Callable, Dict, Any
 
 class SerialComm:
@@ -21,6 +22,7 @@ class SerialComm:
         self.read_thread: Optional[threading.Thread] = None
         self.running = False
         self.on_event: Optional[Callable[[Dict[str, Any]], None]] = None
+        self.log_buffer = collections.deque(maxlen=50) # Buffer last 50 lines
         
     @staticmethod
     def list_ports() -> list:
@@ -68,14 +70,15 @@ class SerialComm:
                 )
                 self.port_name = port
                 self.connected = True
+                self.log_buffer.clear() # Clear logs on new connection
                 
                 # Start read thread
                 self.running = True
                 self.read_thread = threading.Thread(target=self._read_loop, daemon=True)
                 self.read_thread.start()
                 
-                # Wait for device ready
-                time.sleep(0.5)
+                # Wait for device ready (ESP32 might reset on DTR)
+                time.sleep(2.0)
                 
                 print(f"[Serial] Connected to {port}")
                 return True
@@ -115,6 +118,8 @@ class SerialComm:
                 response_line = self.port.readline().decode('utf-8').strip()
                 
                 if response_line:
+                    # Also log the response
+                    # self.log_buffer.append(f"< {response_line}") 
                     return json.loads(response_line)
                 else:
                     return {"status": "error", "msg": "No response"}
@@ -152,6 +157,10 @@ class SerialComm:
         """Get live sensor data"""
         return self.send_command({"cmd": "get_sensors"}) or {"status": "error"}
     
+    def get_logs(self) -> list:
+        """Get recent collected logs"""
+        return list(self.log_buffer)
+
     def _read_loop(self):
         """Background thread for reading events from device"""
         while self.running:
@@ -160,6 +169,7 @@ class SerialComm:
                     with self.lock:
                         line = self.port.readline().decode('utf-8').strip()
                     if line:
+                        self.log_buffer.append(line)
                         try:
                             data = json.loads(line)
                             # Handle events (like button presses)

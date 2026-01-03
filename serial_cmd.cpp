@@ -2,10 +2,11 @@
 // JSON-based protocol for PC companion app communication
 
 #include "include/serial_cmd.h"
-#include "FluxGarage_RoboEyes.h"
+#include "include/FluxGarage_RoboEyes.h"
 #include <ArduinoJson.h>
 #include <Preferences.h>
-#include "config.h"
+#include "include/config.h"
+#include <MPU6050.h>
 
 // =============================================================================
 // GLOBALS
@@ -13,6 +14,8 @@
 static roboEyes* pEyes = nullptr;
 static String serialBuffer = "";
 static Preferences prefs;
+static MPU6050 mpu;
+static bool mpuInitialized = false;
 
 // Current settings (runtime state)
 static struct {
@@ -153,6 +156,7 @@ static void handleGetSettings() {
 // =============================================================================
 
 // Hardware Configuration
+// Note: MIC and AMP share I2S clock pins per HARDWARE.md
 static HardwareConfig hwConfig = {
     .i2c_sda = I2C_SDA,
     .i2c_scl = I2C_SCL,
@@ -164,31 +168,101 @@ static HardwareConfig hwConfig = {
     .i2s_do = I2S_DO,
     .i2s_bclk = I2S_BCLK,
     .i2s_lrc = I2S_LRC,
-    .mic_sd = 0,
-    .mic_ws = 0,
-    .mic_sck = 0
+    .mic_sd = I2S_DI,       // GPIO 11 - mic data input
+    .mic_ws = I2S_LRC,      // GPIO 16 - shared with audio
+    .mic_sck = I2S_BCLK     // GPIO 17 - shared with audio
 };
 
 // =============================================================================
 // HARDWARE CONFIG IMPLEMENTATION
 // =============================================================================
+
+// Check if NVS has valid data or needs reset
+static bool isNVSValid() {
+    prefs.begin("dogepet_hw", true);
+    int sda = prefs.getInt("sda", -999);
+    prefs.end();
+    // If we get default -999, NVS has never been written
+    // If we get 255 or other invalid values, NVS is corrupted
+    return (sda != -999 && sda >= 0 && sda <= 48);
+}
+
+// Reset NVS to factory defaults
+static void resetHardwareConfig() {
+    prefs.begin("dogepet_hw", false);
+    prefs.clear();  // Clear all keys
+    prefs.end();
+    
+    // Reinitialize with defaults from config.h
+    hwConfig.i2c_sda = I2C_SDA;
+    hwConfig.i2c_scl = I2C_SCL;
+    hwConfig.func_btn = FUNC_BTN;
+    hwConfig.led_pin = LED_PIN;
+    hwConfig.vibro_left = VIBRO_LEFT;
+    hwConfig.vibro_right = VIBRO_RIGHT;
+    hwConfig.vbat_pin = VBAT_PIN;
+    hwConfig.i2s_do = I2S_DO;
+    hwConfig.i2s_bclk = I2S_BCLK;
+    hwConfig.i2s_lrc = I2S_LRC;
+    hwConfig.mic_sd = I2S_DI;
+    hwConfig.mic_ws = I2S_LRC;
+    hwConfig.mic_sck = I2S_BCLK;
+    
+    // Save defaults
+    prefs.begin("dogepet_hw", false);
+    prefs.putInt("sda", hwConfig.i2c_sda);
+    prefs.putInt("scl", hwConfig.i2c_scl);
+    prefs.putInt("btn", hwConfig.func_btn);
+    prefs.putInt("led", hwConfig.led_pin);
+    prefs.putInt("vibL", hwConfig.vibro_left);
+    prefs.putInt("vibR", hwConfig.vibro_right);
+    prefs.putInt("vbat", hwConfig.vbat_pin);
+    prefs.putInt("i2s_do", hwConfig.i2s_do);
+    prefs.putInt("i2s_bclk", hwConfig.i2s_bclk);
+    prefs.putInt("i2s_lrc", hwConfig.i2s_lrc);
+    prefs.putInt("mic_sd", hwConfig.mic_sd);
+    prefs.putInt("mic_ws", hwConfig.mic_ws);
+    prefs.putInt("mic_sck", hwConfig.mic_sck);
+    prefs.end();
+    
+    Serial.println("{\"status\":\"info\",\"msg\":\"NVS reset to factory defaults\"}");
+}
+
 // Load hardware config from NVS
 void loadHardwareConfig() {
+    // Check if NVS is valid, reset if needed
+    if (!isNVSValid()) {
+        Serial.println("{\"status\":\"warning\",\"msg\":\"Invalid NVS detected, resetting to defaults\"}");
+        resetHardwareConfig();
+        return;
+    }
     prefs.begin("dogepet_hw", true);
-    hwConfig.i2c_sda = prefs.getInt("sda", I2C_SDA);
-    hwConfig.i2c_scl = prefs.getInt("scl", I2C_SCL);
-    hwConfig.func_btn = prefs.getInt("btn", FUNC_BTN);
-    hwConfig.led_pin = prefs.getInt("led", LED_PIN);
-    hwConfig.vibro_left = prefs.getInt("vibL", VIBRO_LEFT);
-    hwConfig.vibro_right = prefs.getInt("vibR", VIBRO_RIGHT);
-    hwConfig.vbat_pin = prefs.getInt("vbat", VBAT_PIN);
-    // Audio defaults
-    hwConfig.i2s_do = prefs.getInt("i2s_do", 26);
-    hwConfig.i2s_bclk = prefs.getInt("i2s_bclk", 27);
-    hwConfig.i2s_lrc = prefs.getInt("i2s_lrc", 25);
-    hwConfig.mic_sd = prefs.getInt("mic_sd", 32);
-    hwConfig.mic_ws = prefs.getInt("mic_ws", 33);
-    hwConfig.mic_sck = prefs.getInt("mic_sck", 25); // often shared
+    
+    // Load and validate pins (ESP32-S3 valid GPIO: 0-48, but some reserved)
+    auto loadPin = [](const char* key, int defaultVal) -> int {
+        int pin = prefs.getInt(key, defaultVal);
+        // Validate: must be 0-48, not 255 or negative
+        if (pin < 0 || pin > 48) {
+            Serial.printf("{\"warning\":\"Invalid pin %s=%d, using default %d\"}\n", key, pin, defaultVal);
+            return defaultVal;
+        }
+        return pin;
+    };
+    
+    hwConfig.i2c_sda = loadPin("sda", I2C_SDA);
+    hwConfig.i2c_scl = loadPin("scl", I2C_SCL);
+    hwConfig.func_btn = loadPin("btn", FUNC_BTN);
+    hwConfig.led_pin = loadPin("led", LED_PIN);
+    hwConfig.vibro_left = loadPin("vibL", VIBRO_LEFT);
+    hwConfig.vibro_right = loadPin("vibR", VIBRO_RIGHT);
+    hwConfig.vbat_pin = loadPin("vbat", VBAT_PIN);
+    hwConfig.i2s_do = loadPin("i2s_do", I2S_DO);
+    hwConfig.i2s_bclk = loadPin("i2s_bclk", I2S_BCLK);
+    hwConfig.i2s_lrc = loadPin("i2s_lrc", I2S_LRC);
+    hwConfig.mic_sd = loadPin("mic_sd", I2S_DI);
+    hwConfig.mic_ws = loadPin("mic_ws", I2S_LRC);
+    hwConfig.mic_sck = loadPin("mic_sck", I2S_BCLK);
+    
     prefs.end();
 }
 
@@ -224,25 +298,47 @@ static void testLED(bool on) {
 
 static void testVibro(uint8_t motor, bool on) {
     int pin = (motor == 0) ? hwConfig.vibro_left : hwConfig.vibro_right;
+    if (pin <= 0 || pin > 48) return;  // Skip invalid pins
     pinMode(pin, OUTPUT);
     digitalWrite(pin, on ? HIGH : LOW);
 }
 
+// LEDC channel for tone generation (ESP32 uses LEDC for tone())
+#define TONE_LEDC_CHANNEL 0
+static bool toneActive = false;
+
 static void testTone(bool on) {
-    // Simple square wave on I2S_DO pin for testing connectivity
-    // Note: Proper I2S requires driver, this is a "buzz" test
+    // ESP32-S3: Use LEDC for simple tone generation on I2S_DO pin
+    // Note: This is a connectivity test, not proper I2S audio
+    int pin = hwConfig.i2s_do;
+    if (pin <= 0 || pin > 48) {
+        Serial.println("{\"status\":\"error\",\"msg\":\"Invalid audio pin\"}");
+        return;
+    }
+    
     if (on) {
-        tone(hwConfig.i2s_do, 440); 
+        // Setup LEDC for 440Hz tone
+        ledcAttach(pin, 440, 8);  // pin, freq, resolution
+        ledcWrite(pin, 127);       // 50% duty cycle
+        toneActive = true;
     } else {
-        noTone(hwConfig.i2s_do);
-        pinMode(hwConfig.i2s_do, INPUT); // Reset to high-Z
+        if (toneActive) {
+            ledcDetach(pin);
+            pinMode(pin, INPUT);  // High-Z
+            toneActive = false;
+        }
     }
 }
 
 // =============================================================================
 // SENSOR HELPERS
 // =============================================================================
-static float readBattery() {
+static float readBatteryVoltage() {
+    // Validate ADC pin
+    if (hwConfig.vbat_pin < 0 || hwConfig.vbat_pin > 48) {
+        return 0.0f;  // Invalid pin
+    }
+    
     // Simple average
     long sum = 0;
     for(int i=0; i<10; i++) {
@@ -251,8 +347,55 @@ static float readBattery() {
     }
     float raw = sum / 10.0;
     // Voltage divider calculation (3.3V ref, 12-bit ADC)
-    // Formula from HARDWARE.md: ADC_raw * (3.3 / 4095) * 2 * 1.0518
-    return raw * (3.3 / 4095.0) * 2.0 * 1.0518;
+    // Formula from HARDWARE.md: ADC_raw * (3.3 / 4095) * 2 * VBAT_CAL
+    return raw * (3.3 / 4095.0) * 2.0 * VBAT_CAL;
+}
+
+static int readBatteryPercent(float voltage) {
+    // Li-Po discharge curve approximation (3.2V=0%, 4.05V=100%)
+    float pct = (voltage - VBAT_MIN_V) / (VBAT_MAX_V - VBAT_MIN_V) * 100.0;
+    if (pct < 0) pct = 0;
+    if (pct > 100) pct = 100;
+    return (int)pct;
+}
+
+static bool ensureMPUReady() {
+    if (mpuInitialized) return true;
+    
+    // MPU6050 needs Wire to be initialized first
+    // Wire is initialized in main setup() before setupSerialCmd()
+    mpu.initialize();
+    delay(10);  // Give MPU time to settle
+    
+    if (mpu.testConnection()) {
+        mpuInitialized = true;
+        Serial.println("{\"status\":\"info\",\"msg\":\"MPU6050 initialized\"}" );
+        return true;
+    } else {
+        Serial.println("{\"status\":\"warning\",\"msg\":\"MPU6050 not detected on I2C bus\"}" );
+    }
+    return false;
+}
+
+static void readMPUSample(float& ax, float& ay, float& az) {
+    if (!ensureMPUReady()) {
+        ax = ay = 0.0f;
+        az = 0.0f;
+        return;
+    }
+    int16_t rawAx, rawAy, rawAz;
+    mpu.getAcceleration(&rawAx, &rawAy, &rawAz);
+    // Convert to g assuming default sensitivity (16384 LSB/g)
+    ax = rawAx / 16384.0f;
+    ay = rawAy / 16384.0f;
+    az = rawAz / 16384.0f;
+}
+
+static int readMicSample() {
+    // INMP441 is I2S-only, not analog. Proper audio capture requires I2S driver.
+    // Return -1 to indicate "not available via simple read"
+    // TODO: Implement proper I2S microphone capture for real audio levels
+    return -1;  // Indicates I2S mic, not analog readable
 }
 
 // =============================================================================
@@ -311,12 +454,21 @@ static void handleGetSensors() {
     JsonDocument doc;
     JsonObject obj = doc.to<JsonObject>();
     obj["status"] = "ok";
-    obj["vbat"] = readBattery();
-    // Use simulated data for now until drivers are connected
-    obj["mic_db"] = random(30, 80); // Placeholder
-    obj["ax"] = random(-100, 100) / 100.0;
-    obj["ay"] = random(-100, 100) / 100.0;
-    obj["az"] = 0.98 + (random(-10, 10) / 100.0);
+    
+    // Battery voltage and percentage
+    float voltage = readBatteryVoltage();
+    obj["vbat"] = voltage;
+    obj["vbat_pct"] = readBatteryPercent(voltage);
+
+    // Microphone: I2S only, returns -1 for "not analog readable"
+    obj["mic_raw"] = readMicSample();
+
+    // MPU6050 sample (in g). Falls back to zeros if not connected.
+    float ax, ay, az;
+    readMPUSample(ax, ay, az);
+    obj["ax"] = ax;
+    obj["ay"] = ay;
+    obj["az"] = az;
     
     String response;
     serializeJson(doc, response);
@@ -371,12 +523,18 @@ static void handleAction(JsonObject obj) {
     } else if (strcmp(actionType, "test_tone_custom") == 0) {
         // "value": "1000,500" (freq,dur)
         String val = obj["value"].as<String>();
-        int commaValues = val.indexOf(',');
-        if(commaValues != -1) {
-            int freq = val.substring(0, commaValues).toInt();
-            int dur = val.substring(commaValues+1).toInt();
-            tone(hwConfig.i2s_do, freq, dur); // Use simple tone() or I2S generic
-            // Note: ESP32 standard tone() uses ledc. 
+        int commaIdx = val.indexOf(',');
+        if(commaIdx != -1) {
+            int freq = val.substring(0, commaIdx).toInt();
+            int dur = val.substring(commaIdx+1).toInt();
+            int pin = hwConfig.i2s_do;
+            if (pin > 0 && pin <= 48 && freq > 0) {
+                ledcAttach(pin, freq, 8);
+                ledcWrite(pin, 127);
+                delay(dur);
+                ledcDetach(pin);
+                pinMode(pin, INPUT);
+            }
         }
         
     } else if (strcmp(actionType, "test_vib_seq1") == 0) {
@@ -391,10 +549,23 @@ static void handleAction(JsonObject obj) {
             testVibro(1, true); delay(200); testVibro(1, false); delay(100);
         }
     
-    } else if (strcmp(actionType, "test_mic_read") == 0) {
-         Serial.println("{\"status\":\"ok\",\"msg\":\"Mic Sample: ...\"}");
-    } else if (strcmp(actionType, "test_mpu_read") == 0) {
-         Serial.println("{\"status\":\"ok\",\"msg\":\"MPU Sample: ...\"}");
+        } else if (strcmp(actionType, "test_mic_read") == 0) {
+            int micVal = readMicSample();
+            Serial.print("{\"status\":\"ok\",\"mic_raw\":");
+            Serial.print(micVal);
+            Serial.println("}");
+            return;
+        } else if (strcmp(actionType, "test_mpu_read") == 0) {
+            float ax, ay, az;
+            readMPUSample(ax, ay, az);
+            Serial.print("{\"status\":\"ok\",\"ax\":");
+            Serial.print(ax, 3);
+            Serial.print(",\"ay\":");
+            Serial.print(ay, 3);
+            Serial.print(",\"az\":");
+            Serial.print(az, 3);
+            Serial.println("}");
+            return;
     } else if (pEyes) {
         // Delegate eye actions
         if (strcmp(actionType, "blink") == 0) pEyes->blink();
@@ -439,7 +610,7 @@ static void processCommand(const String& cmd) {
         handleConnect();
     } else if (strcmp(cmdType, CMD_SET_EYES) == 0) {
         handleSetEyes(obj);
-    } else if (strcmp(cmdType, CMD_GET_SETTINGS) == 0) {
+    } else if (strcmp(cmdType, CMD_GET_EYES) == 0 || strcmp(cmdType, CMD_GET_SETTINGS) == 0) {
         handleGetSettings();
     } else if (strcmp(cmdType, CMD_ACTION) == 0) {
         handleAction(obj);
@@ -461,8 +632,15 @@ static void processCommand(const String& cmd) {
 void setupSerialCmd(roboEyes* eyesPtr) {
     pEyes = eyesPtr;
     serialBuffer.reserve(512);  // Pre-allocate buffer
-    
-    // Load persisted settings
+        // Print loaded hardware configuration for diagnostics
+    Serial.println("{\\\"status\\\":\\\"info\\\",\\\"msg\\\":\\\"Hardware Config Loaded:\\\"}");
+    Serial.printf("  I2C: SDA=%d SCL=%d\\n", hwConfig.i2c_sda, hwConfig.i2c_scl);
+    Serial.printf("  I2S: BCLK=%d LRC=%d DO=%d DI=%d\\n", 
+                  hwConfig.i2s_bclk, hwConfig.i2s_lrc, hwConfig.i2s_do, hwConfig.mic_sd);
+    Serial.printf("  GPIO: BTN=%d LED=%d VBAT=%d\\n", 
+                  hwConfig.func_btn, hwConfig.led_pin, hwConfig.vbat_pin);
+    Serial.printf("  Motors: VibL=%d VibR=%d\\n", hwConfig.vibro_left, hwConfig.vibro_right);
+        // Load persisted settings
     loadSettings();
     applyEyeSettings();
     
