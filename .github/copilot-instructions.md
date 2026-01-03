@@ -1,122 +1,169 @@
 # DogePet AI Coding Assistant Instructions
 
 ## Project Overview
-DogePet is an **ESP32-S3 embedded companion robot** firmware written in Arduino C++. It's a single-file monolithic sketch (`DogePet.ino`) with modular headers, featuring animated RoboEyes, motion-reactive emotions (MPU6050), BLE notifications (ChronosESP32), optional Gemini AI integration, and I2S audio synthesis.
+DogePet is an **ESP32-S3 embedded companion robot** firmware written in Arduino C++. The codebase follows a **modular architecture** with `DogePet.ino` as the orchestrator and separate `.cpp/.h` modules for each hardware subsystem.
 
-**Core Architecture Pattern**: Central sketch coordinates specialized subsystems via namespaces and lightweight wrappers. The `sectors/` folder contains an experimental modular refactor (not yet integrated).
+**Core Architecture Pattern**: Main sketch coordinates singleton modules via static class methods. Each module handles a specific hardware domain (Face, Motion, Audio, etc.). The `sectors/` folder contains an experimental refactor (not yet integrated).
+
+---
 
 ## Critical Developer Knowledge
 
 ### 1. Build & Flash Workflow
 - **Platform**: Arduino IDE or PlatformIO for ESP32-S3
 - **Board**: ESP32-S3 Super Mini (Arduino ESP32 core 2.x+)
-- **Configuration**: Edit `config.h` BEFORE building (WiFi credentials, Gemini API key, feature flags)
-- **Libraries**: All dependencies bundled in `libraries/` folder (Adafruit_GFX, Adafruit_SH110X, NimBLE-Arduino, ChronosESP32)
+- **Configuration**: Edit `include/config.h` BEFORE building
+- **Libraries**: All dependencies bundled in `libraries/` folder (Adafruit_GFX, Adafruit_SH110X, MPU6050, NimBLE-Arduino, ChronosESP32)
 - **IntelliSense**: `.vscode/c_cpp_properties.json` configured for ESP32-S3 with local library paths
-- **First Boot**: MPU6050 auto-calibrates - keep device flat and still for 5 seconds
+- **First Boot**: MPU6050 DMP auto-calibrates during boot sequence
 
 ### 2. Hardware Pin Mapping (config.h)
 ```cpp
-I2C_SDA=6, I2C_SCL=5           // OLED (0x3C) + MPU6050
-TOUCH_DOWN=35, TOUCH_UP=39     // TPS223 touch sensors (active-HIGH: LOW idle, HIGH when touched)
-FUNC_BTN=41                    // Function button (active-LOW, pull-up, hardware double-press = power off)
+I2C_SDA=6, I2C_SCL=5           // OLED (0x3C) + MPU6050 (0x68)
+MPU_INT_PIN=2                  // MPU6050 DMP interrupt
+FUNC_BTN=41                    // Head touch sensor (Active HIGH with INPUT_PULLDOWN)
+TOUCH_CHIN=1                   // Optional chin touch sensor (compile-time)
 LED_PIN=48                     // WS2812 status LED
 I2S: BCLK=17, LRC=16, DO=33    // Audio output (MAX98357A)
-I2S_DI=14                      // Microphone input (INMP441)
+I2S_DI=11                      // Microphone input (INMP441 stereo)
 VBAT_PIN=15                    // Battery voltage (ADC with divider)
+VIBRO_LEFT=4, VIBRO_RIGHT=3    // Vibration motors (PWM)
 ```
 
-**Touch Sensor Notes**: TPS223 modules are active-HIGH but may float without pull resistors. Use `pinMode(pin, INPUT_PULLDOWN)` to ensure stable LOW idle state and prevent false triggers.
+**Touch Sensor Notes**: TPP223 modules are active-HIGH. Use `INPUT_PULLDOWN` to ensure stable LOW idle state.
 
 ### 3. Configuration System (config.h)
-All magic numbers, thresholds, feature flags, and secrets live in `config.h`:
-- **Feature toggles**: `ENABLE_WIFI`, `ENABLE_GEMINI_AI`, `ENABLE_LAZY_MODE`, `ENABLE_*_SFX`
-- **Motion thresholds**: `TILT_HAPPY_DEG`, `SHAKE_ANGRY_DPS`, `SHAKE_FURIOUS_DPS`
-- **Timing constants**: `MOOD_HOLD_MS`, `GEMINI_COOLDOWN_MS`, `DISPLAY_UPDATE_MS`
-- **WiFi/API secrets**: `WIFI_SSID`, `WIFI_PASSWORD`, `GEMINI_API_KEY` (NEVER commit credentials)
+All magic numbers, thresholds, and settings live in `include/config.h`:
+- **Hardware pins**: All GPIO assignments
+- **Display settings**: `SCREEN_W`, `SCREEN_H`, `OLED_CONTRAST`
+- **Eye appearance**: `EYE_WIDTH`, `EYE_HEIGHT`, `EYE_BORDER_RADIUS`, `EYE_SPACING`
+- **Audio settings**: `AUDIO_SAMPLE_RATE`, `AUDIO_VOLUME`
+- **Power settings**: `VBAT_MIN_V`, `VBAT_MAX_V`, `IDLE_TIMEOUT_MS`, `SLEEP_TIMEOUT_MS`
+- **Motion settings**: `TILT_THRESHOLD_DEG`, `SHAKE_THRESHOLD_DPS`
+- **NVS namespaces**: For persistent storage
 
 **Pattern**: When adding new behaviors, define thresholds/delays in `config.h`, not inline.
 
-### 4. Core Subsystems (Namespace APIs)
+### 4. Core Modules (Static Class APIs)
 
-#### Audio::* (audio.h/cpp)
-- **I2S mixer** with layered voices for "droid" sound effects
-- **Non-blocking sequencer**: `startSequence()`, check `isSequencePlaying()`
-- **Microphone**: `getMicrophoneLevel()`, `isLoudNoiseDetected()` with cooldown tracking
-- **Presets**: `sfxAngry()`, `sfxNotify()`, `playCuteChatterFree()`, `binaryTalkRandom()`
-- **AI SFX parsing**: `playSfxSequence("880>660,150,Q,200; 440,120,S,160")` parses AI-generated sound specs
+#### Face:: (Face.h/cpp)
+- **Display**: Manages SH1106G OLED via Adafruit_SH110X
+- **Eyes**: Procedural animation via FluxGarage_RoboEyes
+- **Key Functions**:
+  - `init()`: Initialize OLED and eye objects
+  - `update()`: Refresh eye animations (call in loop)
+  - `showBootScreen(msg)`, `updateProgressBar(pct, status)`
+  - `getEyes()`: Returns `roboEyes*` for direct manipulation
+  - Sleep face with animated Zzz when `isSleeping = true`
 
-#### AICompanion::* (ai_companion.h/cpp)
-- **Gemini API integration** with token-optimized prompts (< 150 chars responses)
-- **State codes**: Robot state compressed to single chars (N/H/A/F/T for moods)
-- **Message handling**: BLE messages prefixed `AI:`, `@doge`, or `DogePet:` auto-route here
-- **Background chatter**: `handleBackgroundChatter()` with randomized cooldowns (30-90s)
-- **Response parsing**: `executeAIActions()` extracts JSON fields (animation, sfx, toast_message, thought)
-- **Usage tracking**: `getUsageStats()` for monitoring API call counts
+#### Motion:: (Motion.h/cpp)
+- **Hardware**: MPU6050/MPU6500 with DMP (Digital Motion Processor)
+- **Interrupt-driven**: Uses GPIO 2 for DMP data ready
+- **Key Functions**:
+  - `init()`: Initialize DMP and attach interrupt
+  - `calibrate()`: 6-point accel/gyro calibration
+  - `update()`: Read DMP FIFO, output quaternion JSON
+  - `isReady()`: Returns true if DMP initialized
+- **Output**: `{"type":"dmp","w":0.99,"x":0.01,"y":-0.01,"z":0.01}`
 
-#### AnimationEngine::* (animation_engine.h/cpp)
-- **Eye commands**: `executeEyeAnimation("blink")`, `lookDirection("left")`, `setEyeMood("happy")`
-- **Sound wrappers**: `executeSoundFX("notify")` maps AI strings to Audio:: presets
+#### Audio:: (Audio.h/cpp)
+- **I2S Full-duplex**: Mic input (INMP441) + Amp output (MAX98357A)
+- **Software synthesis**: Sine wave generation via I2S buffer
+- **Key Functions**:
+  - `init()`: Install I2S driver
+  - `readMicDB()`: Read stereo mic samples, return dB level
+  - `playTone(freq, duration)`: Synthesize and play tone
+  - `playMelody()`: Startup jingle (C5-E5-G5-C6)
+  - `chirp()`, `purrrSound()`, `surpriseBeep()`, `yawn()`: Sound presets
+  - `update()`: Monitor mic level, log changes
 
-### 5. RoboEyes Integration (FluxGarage_RoboEyes.h)
-- **External global controls**:
-  ```cpp
-  extern bool gEyesAutoFlush;      // Set false to disable display.display() calls
-  extern int gEyesViewportYMax;    // Limit eye drawing area (e.g., 48 for toast overlay)
-  ```
-- **Draw throttling**: Update at ~33Hz (`ROBOEYES_UPDATE_MS = 30ms`) to prevent I2C bus congestion
-- **Mood mapping**: `setEyesMood(MoodState)` -> `roboEyes.happy/angry/tired` flags
+#### Touch:: (Touch.h/cpp)
+- **Debounced input**: 30ms debounce, tap/hold detection
+- **Events**: `NONE`, `TAP`, `HOLD_START`, `HOLDING`, `HOLD_END`
+- **Key Functions**:
+  - `init()`: Configure input pins (FUNC_BTN, optional TOUCH_CHIN)
+  - `update()`: Process input, generate events
+  - `getHeadEvent()`, `getChinEvent()`: Query current event
+  - `getHeadHoldDuration()`, `getChinHoldDuration()`: Hold timing
 
-### 6. State Machine & Loop Architecture
+#### Events:: (Events.h/cpp)
+- **Central event handler**: Coordinates touch → behavior reactions
+- **Behaviors**:
+  - Head tap → eye blink
+  - Head hold → happy eyes + purr vibration
+  - Chin tap → wink + chirp
+  - Chin hold → closed eyes + vertical trembling + purr
+  - Combo (head + chin) → confused + surprise beep
+- **Safeguards**: Auto-clears stuck animations after timeout
 
-**Main loop flow** (DogePet.ino ~line 1298):
+#### Power:: (Power.h/cpp)
+- **Battery monitoring**: ADC on GPIO 15 with voltage divider
+- **State machine**: `ACTIVE` → `DIM` (1 min) → `SLEEPING` (2 min)
+- **Activity tracking**: `onActivity()`, `onMotion()`, `onLoudNoise()`
+- **Callbacks**: `onSleepCallback`, `onWakeCallback`, `onDimCallback`
+
+#### Haptics:: (Haptics.h/cpp)
+- **Dual motors**: PWM via LEDC (GPIO 3, 4)
+- **Patterns**: `click()`, `doubleClick()`, `alarm()`
+- **Non-blocking purr**: `startPurr()`, `purrTick()`, `stopPurr()`
+
+#### LED:: (LED.h/cpp)
+- **WS2812 NeoPixel**: Single LED on GPIO 48
+- **Functions**: `setColor(r,g,b)`, `setBrightness(level)`, `on()`, `off()`
+
+#### Animation:: (Animation.h/cpp)
+- **High-level sequences**: `playStartupSequence()` (blink → laugh → happy)
+- **Behavior tree**: `tick()` for complex behaviors (expandable)
+
+### 5. Boot Sequence State Machine (DogePet.ino)
+```
+BOOT_INIT       → I2C scan, splash screen
+BOOT_DISPLAY_TEST → Line animation test
+BOOT_IMU_TEST   → DMP calibration
+BOOT_AUDIO_TEST → Mic read + tone test
+BOOT_HAPTIC_TEST → Click + purr test
+BOOT_POWER_TEST → Battery voltage read
+BOOT_ANIMATION  → Wake-up sequence
+BOOT_DONE       → Normal loop operation
+```
+
+### 6. Main Loop Flow (DogePet.ino)
 ```cpp
 loop() {
-  chrono.loop();              // BLE event processing
-  updatePowerManagement();    // Track activity, handle lazy/sleep modes
-  checkMicrophoneNoise();     // Detect loud sounds
-  AICompanion::handleBackgroundChatter(); // Periodic AI chatter
-  [input handling]            // Touch/button debouncing, tap detection
-  [face rendering]            // Switch between FACE_EYES/FACE_CLOCK/FACE_NOTIF
-  Audio::update();            // Fill I2S buffer
-  Audio::sequencerUpdate();   // Advance multi-step sounds
+  if (bootState != BOOT_DONE) { runBootSequence(); return; }
+  
+  Motion::update();       // DMP quaternion updates
+  Events::update();       // Touch → behavior handling
+  Power::update();        // Sleep state management
+  Haptics::purrTick();    // Non-blocking purr
+  Touch::update();        // Input debouncing
+  Face::update();         // Eye animation refresh
+  Animation::tick();      // Behavior tree
 }
 ```
 
-**Critical timing**: 
-- Display updates throttled to 50ms (`DISPLAY_UPDATE_MS`)
-- Eye updates at 30ms (`ROBOEYES_UPDATE_MS`)
-- Audio buffers filled every loop (Audio::update())
+### 7. RoboEyes Integration (FluxGarage_RoboEyes.h)
+- **External globals** (legacy, defined in DogePet.ino):
+  ```cpp
+  bool gEyesAutoFlush = true;    // Auto display.display()
+  int gEyesViewportYMax = 0;     // Viewport limit for overlays
+  ```
+- **Mood flags**: `eyes->happy`, `eyes->tired`, `eyes->angry`, `eyes->confused`
+- **Animations**: `eyes->blink()`, `eyes->close()`, `eyes->open()`, `eyes->setVFlicker()`, `eyes->setHFlicker()`
 
-### 7. Input Handling Patterns
-- **Debounced tap detection**: `touchDownDoubleTap()`, `touchDownTripleTap()` use windowed tap counting
-  - Debounce time: 25ms (configurable via `TOUCH_DEBOUNCE_MS` in config.h)
-  - Double-tap window: 500ms, Triple-tap window: 900ms
-  - **Critical**: Triple-tap checked BEFORE double-tap to prevent premature triggering
-- **Hold detection**: `FUNC_BTN` hold (2s) + touch sensor combos for BLE/WiFi toggles
-- **Hardware limitation**: FUNC_BTN double-press is hardware power-off, triple-press impossible
+### 8. Serial JSON Protocol
+All serial output uses JSON for PC companion app parsing:
+- **Status**: `{"status":"ok"|"error"|"info","msg":"..."}`
+- **Data**: `{"status":"data","type":"mic"|"power"|"imu",...}`
+- **DMP**: `{"type":"dmp","w":0.99,"x":0.01,"y":-0.01,"z":0.01}`
+- **Events**: `{"status":"event","type":"tap"|"petting_start",...}`
 
-**Gesture to action mapping** (README.md):
-- Double-tap TOUCH_DOWN → cycle faces
-- Triple-tap TOUCH_DOWN → WiFi config portal
-- Triple-tap TOUCH_UP → toggle silent mode
-- Hold FUNC_BTN + TOUCH_DOWN → toggle BLE
-- Hold FUNC_BTN + TOUCH_UP → toggle WiFi
+---
 
-### 8. Toast/Notification System
-- **Typewriter effect**: `showToastTypewriter(text, durationMs, typeSpeedMs)` animates character-by-character
-- **Binary chatter mode**: Set `toastScatter=true` for scatter text, `toastNoFrame=true` to skip border
-- **Viewport clipping**: Toast draws at Y >= `gEyesViewportYMax` to avoid eye overlap
+## Developer Tools
 
-### 9. Power Management
-- **Lazy mode**: After 2min idle (`LAZY_AFTER_MS`), enters low-power state with periodic jingles
-- **Display dimming**: Brightness reduces to `SLEEP_BRIGHTNESS` after `DIM_AFTER_MS` (10s)
-- **Wake triggers**: Touch, button, motion, microphone noise, or BLE notifications
-
-### 10. Developer Tools
-
-#### Python Asset Generators (tools/)
-- **font_to_header.py**: TTF/OTF → Adafruit_GFX bitmap headers with UTF-8 support
+### Python Asset Generators (tools/)
+- **font_to_header.py**: TTF/OTF → Adafruit_GFX bitmap headers
   ```bash
   python tools/font_to_header.py --ttf fonts/shopee/shopee2021-regular.ttf \
     --size 12 --text assets/vi_charset.txt --name ShopeeRegular12 --out include/ShopeeRegular12.h
@@ -126,67 +173,74 @@ loop() {
   python tools/png_to_header.py --in icon/src --out icon/icons_auto.h --w 12 --h 12
   ```
 
-#### Serial Debugging
-- Verbose logging for AI: Set `ENABLE_AI_DEBUG_LOGS = true` in `config.h`
-- Motion debug: `debugPrintIMUIfChanged()` prints accel/gyro when thresholds crossed
-- Audio diagnostics: `Audio::runDiagnostics()` in setup() checks I2S/mic hardware
+---
 
 ## Common Editing Patterns
 
-### Adding New Emotions/Moods
-1. Add enum to `MoodState` in `motion.h`
-2. Map to RoboEyes flags in `setEyesMood()` (DogePet.ino)
-3. Add trigger logic in `updateEmotionsFromIMU()` (motion.cpp)
-4. Add thresholds to `config.h` (e.g., `GENTLE_TAP_DPS`)
+### Adding New Touch Behaviors
+1. Define new behavior in `Events.cpp` under appropriate `TouchEvent` case
+2. Use `Face::getEyes()` for eye animations
+3. Use `Haptics::` for vibration feedback
+4. Use `Audio::` for sound effects
+5. Call `Power::onActivity()` to prevent sleep
 
 ### Adding New Sound Effects
-1. Define preset in `Audio::` namespace (audio.cpp)
-2. Use `playBleep()` for layered tones or `startSequence()` for melodies
-3. Add feature flag to `config.h` (e.g., `ENABLE_NEW_SFX`)
-4. Call from appropriate event handler with debounce check
+1. Define new function in `Audio::` namespace (Audio.cpp)
+2. Use `playTone(freq, duration)` for simple tones
+3. Chain tones with small delays for melodies
+4. Call from Events.cpp or Animation.cpp
 
-### Extending AI Capabilities
-1. Update `GEMINI_SYSTEM_PROMPT` in `ai_companion.h` (keep < 120 chars)
-2. Add new JSON response fields to `executeAIActions()` parser
-3. Test with `AI: test` BLE message (see setup() debug logs)
-4. Monitor token usage with `getUsageStats()`
+### Adding New Eye Animations
+1. Access eyes via `Face::getEyes()`
+2. Set mood flags: `eyes->happy`, `eyes->tired`, `eyes->angry`
+3. Use flicker: `eyes->setVFlicker(speed, amplitude)`, `eyes->setHFlicker(speed, amplitude)`
+4. Remember to reset flags when behavior ends
 
-### Modifying UI/Display
-1. Check `gEyesViewportYMax` to reserve vertical space
-2. Use `displayNeedsUpdate` flag to prevent unnecessary redraws
-3. Throttle updates with `lastDisplayUpdateMs` checks
-4. For overlays, draw after RoboEyes but before `display.display()`
+### Modifying Boot Sequence
+1. Add new `BootState` enum value in DogePet.ino
+2. Add case in `runBootSequence()` switch
+3. Update progress bar percentages
+4. Ensure hardware test runs before dependent tests
+
+---
 
 ## Critical "Gotchas"
 
-1. **stdint.h workarounds**: Arduino IDE prototype generation requires manual typedef guards (see DogePet.ino lines 10-17)
-2. **I2C bus contention**: OLED and MPU6050 share I2C - don't update display faster than 50ms
-3. **Audio timing**: Always call `Audio::update()` in loop(), sequencer won't advance without it
-4. **BLE notification callbacks**: Run in BLE task context - copy strings immediately (see chrono.setNotificationCallback)
-5. **WiFi blocking**: `WiFi.begin()` can block for 30s - UI feedback critical (see setWifiEnabled)
-6. **API credentials**: NEVER commit `GEMINI_API_KEY` or `WIFI_PASSWORD` - use placeholders in examples
-
-## File Organization Strategy
-- **Monolithic sketch**: `DogePet.ino` contains setup/loop and UI rendering
-- **Subsystem headers**: `audio.h`, `motion.h`, `ai_companion.h` export namespace APIs
-- **Config centralization**: `config.h` is single source of truth for all constants
-- **Future refactor**: `sectors/` folder contains experimental modular architecture (not yet wired to main sketch)
-
-## Testing & Validation
-- **Hardware requirements**: All features need physical ESP32-S3 + peripherals (no emulator)
-- **BLE testing**: Use nRF Connect app or ChronosESP32 companion app
-- **AI testing**: Send `AI: test` via BLE notifications to verify Gemini integration
-- **Audio validation**: Check serial output for "I2S initialized" and diagnostics
-
-## Common Tasks Quick Reference
-
-**Add new config constant**: Edit `config.h` → Rebuild  
-**Change WiFi credentials**: `config.h` lines 198-200  
-**Adjust motion sensitivity**: `config.h` lines 75-82  
-**Generate font header**: `python tools/font_to_header.py [args]`  
-**Debug AI responses**: `ENABLE_AI_DEBUG_LOGS = true` in `config.h`  
-**Test microphone**: Check serial for "Loud noise detected!" messages  
-**Reduce API costs**: Increase `GEMINI_COOLDOWN_MS` and `AI_CHATTER_INTERVAL_MS`
+1. **I2C bus contention**: OLED and MPU6050 share I2C - display updates throttled to 30ms
+2. **DMP interrupt timing**: `Motion::update()` is interrupt-driven, runs fast
+3. **PWM strapping pin**: GPIO 3 (VIBRO_RIGHT) is strapping pin - handle during boot
+4. **LEDC mode**: Haptics uses `analogWrite()` which configures LEDC automatically
+5. **Chin sensor optional**: Compile-time `TOUCH_CHIN_ENABLED` in config.h
+6. **Events module**: All touch behaviors now handled in Events.cpp, not DogePet.ino
 
 ---
-**Last Updated**: Based on codebase analysis (October 2025)
+
+## File Organization
+
+```
+DogePet/
+├── DogePet.ino          # Main orchestrator + boot state machine
+├── [Module].cpp         # Module implementations
+├── include/
+│   ├── config.h         # All pins, constants, NVS namespaces
+│   ├── [Module].h       # Module interfaces
+│   └── FluxGarage_RoboEyes.h  # Eye animation library
+├── libraries/           # Bundled dependencies
+├── companion/           # PC companion app (Flask)
+├── tools/               # Python utilities
+├── sectors/             # Experimental refactor (not integrated)
+└── DOCS/                # Documentation
+```
+
+---
+
+## Testing & Validation
+
+- **Hardware required**: All features need physical ESP32-S3 + peripherals
+- **Serial monitor**: 115200 baud, JSON output
+- **Touch test**: Watch for `{"status":"event","type":"tap",...}` messages
+- **Motion test**: Watch for `{"type":"dmp","w":...}` quaternion output
+- **Audio test**: Listen for boot melody and sound effects
+
+---
+**Last Updated**: January 2026 (v2.0 modular architecture)

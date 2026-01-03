@@ -1,5 +1,6 @@
-#include "include/Animation.h"
-#include "include/Audio.h"
+// Animation.cpp - High-level animation sequences
+#include "Animation.h"
+#include "Audio.h"
 
 void Animation::init() {
     // Ready state
@@ -9,12 +10,10 @@ void Animation::playStartupSequence() {
     roboEyes* eyes = Face::getEyes();
     
     // 1. Blink
-    eyes->setMood(0); // Normal
-    eyes->blink(); // Non-blocking trigger, but we want sequence?
-    // RoboEyes blink is non-blocking state change.
+    eyes->setMood(0);
+    eyes->blink();
     
-    // 2. Laugh Animation
-    // Manually animate mood/position
+    // 2. Laugh animation
     for(int i=0; i<3; i++) {
         eyes->setPosition(1); // N
         Face::update();
@@ -26,13 +25,12 @@ void Animation::playStartupSequence() {
     eyes->setPosition(0); // Center
     
     // Happy mood
-    eyes->setMood(3); // Happy
+    eyes->setMood(3);
     Face::update();
     
     // Audio feedback
     Audio::playMelody();
     
-    // Wait a bit
     delay(500);
     
     // Reset to normal
@@ -40,7 +38,5 @@ void Animation::playStartupSequence() {
 }
 
 void Animation::tick() {
-    // Main behavior tree loop
-    // Currently relying on RoboEyes internal auto-blink/idle
-    // Can expand here for complex logic
+    // Behavior tree loop - can expand here
 }

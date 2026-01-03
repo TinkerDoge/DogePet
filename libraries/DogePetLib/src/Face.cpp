@@ -1,4 +1,5 @@
-#include "include/Face.h"
+// Face.cpp - Display and eye animation management
+#include "Face.h"
 
 // Define static members
 Adafruit_SH1106G Face::display(SCREEN_W, SCREEN_H, &Wire, OLED_RESET);
@@ -8,8 +9,7 @@ uint32_t Face::sleepAnimMs = 0;
 
 void Face::init() {
     // Initialize Display
-    // Note: Wire should be begun in main setup or here? 
-    // We assume Wire.begin() is called in setup() before Module init
+    // Note: Wire.begin() should be called in setup() before this
     
     if (!display.begin(SCREEN_ADDR, true)) {
         Serial.println("{\"status\":\"error\",\"msg\":\"OLED not found\"}");

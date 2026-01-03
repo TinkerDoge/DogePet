@@ -1,12 +1,12 @@
-#include "include/Events.h"
-#include "include/Face.h"
-#include "include/Touch.h"
-#include "include/Haptics.h"
-#include "include/Audio.h"
-#include "include/Power.h"
-#include "include/config.h"
+// Events.cpp - Central event handler for touch → behavior reactions
+#include "Events.h"
+#include "Face.h"
+#include "Touch.h"
+#include "Haptics.h"
+#include "Audio.h"
+#include "Power.h"
+#include "config.h"
 
-// State variables (moved from DogePet.ino)
 static bool isPetting = false;
 static bool isChinScratching = false;
 static bool comboLoveTriggered = false;
@@ -24,30 +24,26 @@ void Events::update() {
     roboEyes* eyes = Face::getEyes();
     if (!eyes) return;
 
-    // ========== SAFEGUARD: Clear stuck animations ==========
-    // If confused has been on too long, force clear it
+    // Safeguard: Clear stuck animations
     if (eyes->confused && confusedStartMs > 0) {
         if (millis() - confusedStartMs > CONFUSED_MAX_MS) {
             eyes->confused = false;
-            eyes->setHFlicker(0, 0);  // Force stop horizontal shaking
+            eyes->setHFlicker(0, 0);
             confusedStartMs = 0;
-            Serial.println("{\"status\":\"debug\",\"msg\":\"Confused timeout safeguard triggered\"}");
         }
     }
     
-    // ========== HEAD TOUCH (FUNC_BTN - Petting area) ==========
+    // ========== HEAD TOUCH ==========
     TouchEvent headEvent = Touch::getHeadEvent();
     
     switch (headEvent) {
         case TouchEvent::TAP:
-            // Single tap on head = blink
             eyes->blink();
             Power::onActivity();
             Serial.println("{\"status\":\"event\",\"type\":\"tap\",\"sensor\":\"head\"}");
             break;
             
         case TouchEvent::HOLD_START:
-            // Start petting - begin happy mode
             isPetting = true;
             eyes->happy = true;
             eyes->tired = false;
@@ -57,15 +53,12 @@ void Events::update() {
             break;
             
         case TouchEvent::HOLDING:
-            // Continue petting - maintain happy state
-            // Occasional blink while being pet (every ~2 seconds)
             if (Touch::getHeadHoldDuration() % 2000 < 50) {
                 eyes->blink();
             }
             break;
             
         case TouchEvent::HOLD_END:
-            // Stop petting - return to normal
             isPetting = false;
             eyes->happy = false;
             Haptics::stopPurr();
@@ -76,16 +69,15 @@ void Events::update() {
             break;
     }
     
-    // ========== CHIN SENSOR (Optional - only if TOUCH_CHIN_ENABLED) ==========
+    // ========== CHIN SENSOR (OPTIONAL) ==========
     #ifdef TOUCH_CHIN_ENABLED
     TouchEvent chinEvent = Touch::getChinEvent();
     
-    // Special combo: Both head AND chin touched = overwhelming love!
+    // Combo: Both head AND chin
     if (isPetting && (chinEvent == TouchEvent::HOLD_START || chinEvent == TouchEvent::HOLDING)) {
         if (!comboLoveTriggered) {
-            // Overwhelmed with affection! Confused happy reaction
             eyes->confused = true;
-            confusedStartMs = millis();  // Track when confusion started
+            confusedStartMs = millis();
             eyes->happy = true;
             Haptics::doubleClick();
             Audio::surpriseBeep();
@@ -95,18 +87,16 @@ void Events::update() {
         Power::onActivity();
     } else {
         if (comboLoveTriggered) {
-            // Exiting combo - clean up
             eyes->confused = false;
-            eyes->setHFlicker(0, 0);  // Stop shaking
+            eyes->setHFlicker(0, 0);
             confusedStartMs = 0;
         }
-        comboLoveTriggered = false;  // Reset when not in combo
+        comboLoveTriggered = false;
     }
     
     switch (chinEvent) {
         case TouchEvent::TAP:
-            // Tap on chin = playful chirp + wink
-            eyes->blink(true, false);  // Wink left eye
+            eyes->blink(true, false);
             Haptics::click();
             Audio::chirp();
             Power::onActivity();
@@ -114,11 +104,10 @@ void Events::update() {
             break;
             
         case TouchEvent::HOLD_START:
-            // Start chin scratches - blissful closed eyes with gentle tremble!
             if (!isPetting) {
                 isChinScratching = true;
-                eyes->close();  // Blissfully close eyes
-                eyes->setVFlicker(1, 2);  // Gentle vertical trembling (amplitude 2)
+                eyes->close();
+                eyes->setVFlicker(1, 2);
                 Haptics::startPurr();
                 Audio::purrrSound();
                 Serial.println("{\"status\":\"event\",\"type\":\"chin_scratch_start\"}");
@@ -127,26 +116,23 @@ void Events::update() {
             break;
             
         case TouchEvent::HOLDING:
-            // Continue chin scratches - eyes stay closed with gentle shake
             if (isChinScratching && !isPetting) {
-                // Every ~3 seconds, briefly open eyes to "peek" then close again
                 uint32_t holdTime = Touch::getChinHoldDuration();
                 if (holdTime % 3000 < 50) {
-                    eyes->open();  // Quick peek
-                    eyes->setVFlicker(0, 0);  // Stop shake while peeking
+                    eyes->open();
+                    eyes->setVFlicker(0, 0);
                 } else if (holdTime % 3000 > 200 && holdTime % 3000 < 250) {
-                    eyes->close();  // Back to bliss
-                    eyes->setVFlicker(1, 2);  // Resume gentle shake
+                    eyes->close();
+                    eyes->setVFlicker(1, 2);
                 }
             }
             break;
             
         case TouchEvent::HOLD_END:
-            // Stop chin scratches - open eyes and stop shaking
             if (isChinScratching) {
                 isChinScratching = false;
                 eyes->open();
-                eyes->setVFlicker(0, 0);  // Stop trembling
+                eyes->setVFlicker(0, 0);
                 eyes->confused = false;
                 if (!isPetting) {
                     Haptics::stopPurr();

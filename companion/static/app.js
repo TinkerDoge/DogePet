@@ -264,9 +264,23 @@ function initEventListeners() {
     // TABS
     const tabs = document.querySelectorAll('.tab-btn');
     const contents = document.querySelectorAll('.tab-content');
+    let lastActiveTab = '';
 
     tabs.forEach(tab => {
         tab.addEventListener('click', () => {
+            const newTab = tab.dataset.tab;
+            
+            // Disable MPU streaming when leaving MPU tab
+            if (lastActiveTab === 'mpu' && newTab !== 'mpu') {
+                sendAction('mpu_stream_off');
+            }
+            // Enable MPU streaming when entering MPU tab
+            if (newTab === 'mpu' && lastActiveTab !== 'mpu') {
+                sendAction('mpu_stream_on');
+            }
+            
+            lastActiveTab = newTab;
+            
             tabs.forEach(t => t.classList.remove('active'));
             contents.forEach(c => c.classList.remove('active'));
             
@@ -386,7 +400,14 @@ async function updateBattery() {
             const pctEl = document.getElementById('vbat-pct');
             const barEl = document.getElementById('vbat-bar');
             
-            const v = data.vbat || 0;
+            // Use dedicated voltage field 'vbat_volts' to avoid collision with pin 'vbat'
+            // If missing, fall back to 'vbat' ONLY if float-like (not integer pin 15)
+            let v = data.vbat_volts;
+            if (typeof v !== 'number' && typeof data.vbat === 'number') {
+                if (data.vbat % 1 !== 0) v = data.vbat; // Use if float
+            }
+            v = v || 0;
+            
             if (el) el.textContent = v > 0 ? v.toFixed(2) + ' V' : '-- V';
             
             // Calc percentage (3.2V to 4.2V lipo curve approx)

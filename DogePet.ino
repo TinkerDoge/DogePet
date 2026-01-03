@@ -1,27 +1,12 @@
 // DogePet - Robot Face with PC Companion App Support
 // Communicates via USB Serial with PC companion app
 
-#include <Arduino.h>
 #include <Wire.h>
-#include <Adafruit_GFX.h>
-#include <Adafruit_SH110X.h>
-#include "include/config.h"
+#include <DogePetLib.h>
 
-// External controls for RoboEyes library (Legacy, managed by Face module now)
+// External controls for RoboEyes library
 bool gEyesAutoFlush = true;
 int gEyesViewportYMax = 0;
-
-// Modules
-#include "include/Face.h"
-#include "include/Motion.h"
-#include "include/Audio.h"
-#include "include/Animation.h"
-#include "include/Power.h"
-#include "include/Haptics.h"
-#include "include/LED.h"
-#include "include/Touch.h"
-#include "include/serial_cmd.h"
-#include "include/Events.h"
 
 // Boot state machine
 enum BootState { 
@@ -44,6 +29,9 @@ void setup() {
   Serial.begin(115200);
   delay(500);
 
+  // Load hardware config from NVS (must be before Wire.begin)
+  //loadHardwareConfig();
+
   // I2C Bus
   Wire.begin(I2C_SDA, I2C_SCL, 400000);
   delay(100);
@@ -59,8 +47,8 @@ void setup() {
   Animation::init();
   Events::init();
   
-  // Serial command handler
-  setupSerialCmd(Face::getEyes());
+  // Serial command handler (disabled until webapp ready)
+  // setupSerialCmd(Face::getEyes());
 }
 
 // =============================================================================
@@ -89,8 +77,9 @@ void runBootSequence() {
       break;
       
     case BOOT_IMU_TEST:
-      Face::updateProgressBar(25, "Calibrate IMU...");
-      Motion::calibrate();
+      Face::updateProgressBar(25, "Check IMU...");
+      // Note: Calibration already happens in Motion::init()
+      // Just check if DMP is ready
       delay(200);
       if (Motion::isReady()) {
         Face::updateProgressBar(35, "IMU OK");
@@ -180,20 +169,25 @@ void loop() {
     return;  // Don't run normal loop until boot is done
   }
   
-  // Normal operation
-  processSerialCmd();
+  // Serial Command Handling
+  // processSerialCmd();
   
-  // Update touch sensors
-  Touch::update();
-  
-  // Handle touch events
+  // Update Modules
+  Motion::update();
   Events::update();
+  Power::update();
   
   // Update haptics purr (non-blocking)
   Haptics::purrTick();
   
   // Update Motion Sensor (logs data on change)
-  Motion::update();
+  // Motion::update(); // Moved above
+  
+  // Update touch sensors
+  Touch::update();
+  
+  // Handle touch events
+  // Events::update(); // Moved above
   
   // Update face
   Face::update();

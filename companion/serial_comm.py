@@ -232,8 +232,14 @@ class SerialComm:
                                 
                                 self.sensor_cache["last_update"] = time.time()
                             
-                            # Update other sensors
-                            if "vbat" in data: self.sensor_cache["vbat"] = data["vbat"]
+                            
+                            # Power Data
+                            if data.get("type") == "power":
+                                self.sensor_cache["vbat_volts"] = data.get("v", 0.0)
+                                self.sensor_cache["vbat_pct"] = data.get("pct", 0)
+                            
+                            # Update other sensors (Legacy)
+                            if "vbat" in data: self.sensor_cache["vbat_volts"] = data["vbat"] # Fallback if FW sends old key
                             if "vbat_pct" in data: self.sensor_cache["vbat_pct"] = data["vbat_pct"]
                             if "mic_db" in data: self.sensor_cache["mic_db"] = data["mic_db"]
 

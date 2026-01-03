@@ -1,0 +1,45 @@
+// Power.h - Battery monitoring and sleep management
+#pragma once
+
+#include <Arduino.h>
+#include "config.h"
+
+enum class PowerState {
+    ACTIVE,
+    DIM,
+    SLEEPING
+};
+
+class Power {
+public:
+    static void init();
+    static void update();  // Call in loop()
+    
+    // Battery reading
+    static float getVoltage();
+    static int getPercent();
+    static void logStatus();
+    
+    // Activity tracking (call these to keep awake)
+    static void onActivity();
+    static void onMotion();
+    static void onLoudNoise();
+    
+    // State control
+    static PowerState getState();
+    static bool isSleeping();
+    static void wake();
+    static void sleep();
+    
+    // Callbacks for state changes
+    static void (*onSleepCallback)();
+    static void (*onWakeCallback)();
+    static void (*onDimCallback)();
+    
+private:
+    static float readADC();
+    static PowerState state;
+    static uint32_t lastActivityMs;
+    static uint32_t lastMotionMs;
+    static uint32_t lastNoiseMs;
+};

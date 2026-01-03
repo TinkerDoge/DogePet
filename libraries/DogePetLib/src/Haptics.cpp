@@ -1,26 +1,26 @@
-#include "include/Haptics.h"
+// Haptics.cpp - Vibration motor control
+#include "Haptics.h"
 
-// Track if LEDC is set up for these pins
+// Track if LEDC is set up
 static bool ledcSetup = false;
 
+bool Haptics::purring = false;
+uint32_t Haptics::purrPhaseMs = 0;
+uint8_t Haptics::purrPhase = 0;
+
 void Haptics::init() {
-    // Use analogWrite to configure LEDC from the start
-    // This avoids issues with switching between GPIO and LEDC modes
     analogWrite(VIBRO_LEFT, 0);
     analogWrite(VIBRO_RIGHT, 0);
     ledcSetup = true;
-    
     Serial.println("{\"status\":\"info\",\"msg\":\"Haptics Init (LEDC mode)\"}");
 }
 
 void Haptics::stop() {
-    // Just set PWM to 0, don't detach - keeps LEDC configured
     analogWrite(VIBRO_LEFT, 0);
     analogWrite(VIBRO_RIGHT, 0);
 }
 
 void Haptics::setMotor(int pin, int pwm) {
-    // Always use analogWrite - it handles 0 properly
     if (pwm < 0) pwm = 0;
     if (pwm > 255) pwm = 255;
     analogWrite(pin, pwm);
@@ -37,51 +37,35 @@ void Haptics::buzz(uint8_t left, uint8_t right, uint32_t durationMs) {
 }
 
 void Haptics::click() {
-    buzz(255, 255, 50);  // Strong short click
+    buzz(255, 255, 50);
 }
 
 void Haptics::doubleClick() {
-    // Heartbeat pattern: lub-DUB ... lub-DUB
-    // First beat (lub)
-    buzz(200, 200, 60);
-    delay(50);
-    // Second beat (DUB - stronger)
-    buzz(255, 255, 100);
-    delay(300);
-    // Repeat
-    buzz(200, 200, 60);
-    delay(50);
+    buzz(200, 200, 60); delay(50);
+    buzz(255, 255, 100); delay(300);
+    buzz(200, 200, 60); delay(50);
     buzz(255, 255, 100);
 }
 
 void Haptics::alarm() {
-    // Rapid alternating pattern - urgent feel
     for (int i = 0; i < 3; i++) {
-        buzz(255, 0, 80);   // Left motor
-        buzz(0, 255, 80);   // Right motor
+        buzz(255, 0, 80);
+        buzz(0, 255, 80);
     }
-    buzz(0, 0, 0);  // Ensure off at end
+    buzz(0, 0, 0);
 }
-
-// ============================================================================
-// Purr - Non-blocking cat-like rhythmic vibration
-// ============================================================================
-
-bool Haptics::purring = false;
-uint32_t Haptics::purrPhaseMs = 0;
-uint8_t Haptics::purrPhase = 0;
 
 void Haptics::startPurr() {
     purring = true;
     purrPhaseMs = millis();
     purrPhase = 0;
-    buzz(180, 180, 0);  // Start immediately
+    buzz(180, 180, 0);
 }
 
 void Haptics::stopPurr() {
     purring = false;
     purrPhase = 0;
-    buzz(0, 0, 0);  // Turn off
+    buzz(0, 0, 0);
 }
 
 bool Haptics::isPurring() {
@@ -94,37 +78,34 @@ void Haptics::purrTick() {
     uint32_t now = millis();
     uint32_t elapsed = now - purrPhaseMs;
     
-    // Purr pattern: rhythmic vibration like cat purring
-    // Uses buzz() which we know works reliably
-    
     switch (purrPhase) {
-        case 0: // Medium rumble
+        case 0:
             if (elapsed >= 150) {
-                buzz(255, 255, 0);  // Pulse up
+                buzz(255, 255, 0);
                 purrPhase = 1;
                 purrPhaseMs = now;
             }
             break;
             
-        case 1: // Strong pulse
+        case 1:
             if (elapsed >= 80) {
-                buzz(180, 180, 0);  // Back down
+                buzz(180, 180, 0);
                 purrPhase = 2;
                 purrPhaseMs = now;
             }
             break;
             
-        case 2: // Medium
+        case 2:
             if (elapsed >= 150) {
-                buzz(100, 100, 0);  // Quiet moment
+                buzz(100, 100, 0);
                 purrPhase = 3;
                 purrPhaseMs = now;
             }
             break;
             
-        case 3: // Soft pause
+        case 3:
             if (elapsed >= 120) {
-                buzz(180, 180, 0);  // Start next cycle
+                buzz(180, 180, 0);
                 purrPhase = 0;
                 purrPhaseMs = now;
             }

@@ -1,4 +1,5 @@
-#include "include/Touch.h"
+// Touch.cpp - Debounced touch input with tap/hold detection
+#include "Touch.h"
 
 // Static member initialization - Head (FUNC_BTN)
 bool Touch::headRaw = false, Touch::headState = false, Touch::headLastState = false;
@@ -14,13 +15,11 @@ bool Touch::chinEnabled = false;
 bool Touch::chinHoldStartSent = false;
 
 void Touch::init() {
-    // FUNC_BTN is the main touch on head - Active HIGH (HIGH when touched)
     pinMode(FUNC_BTN, INPUT_PULLDOWN);
     
-    // Check if chin touch is enabled (compile-time option)
     #ifdef TOUCH_CHIN_ENABLED
     chinEnabled = true;
-    pinMode(TOUCH_CHIN, INPUT_PULLDOWN);  // Assuming active-HIGH sensor
+    pinMode(TOUCH_CHIN, INPUT_PULLDOWN);
     Serial.println("{\"status\":\"info\",\"msg\":\"Touch Init (Head + Chin)\"}");
     #else
     chinEnabled = false;
@@ -31,13 +30,10 @@ void Touch::init() {
 void Touch::update() {
     uint32_t now = millis();
     
-    // Read raw value - FUNC_BTN is Active HIGH (pressed = HIGH)
     headRaw = digitalRead(FUNC_BTN) == HIGH;
-    
-    // Clear event each loop - events are one-shot
     headEvent = TouchEvent::NONE;
     
-    // ========== HEAD SENSOR (FUNC_BTN) DEBOUNCE & STATE ==========
+    // ========== HEAD SENSOR DEBOUNCE & STATE ==========
     if (headRaw != headState) {
         if (now - headDebounceMs >= DEBOUNCE_MS) {
             headLastState = headState;
@@ -45,24 +41,21 @@ void Touch::update() {
             headDebounceMs = now;
             
             if (headState) {
-                // Just pressed
                 headPressMs = now;
-                headHoldStartSent = false;  // Reset for new press
+                headHoldStartSent = false;
             } else {
-                // Just released
                 uint32_t holdTime = now - headPressMs;
                 if (holdTime < TAP_MAX_MS) {
                     headEvent = TouchEvent::TAP;
                 } else {
                     headEvent = TouchEvent::HOLD_END;
                 }
-                headHoldStartSent = false;  // Reset
+                headHoldStartSent = false;
             }
         }
     } else {
         headDebounceMs = now;
         
-        // Check if currently holding
         if (headState) {
             uint32_t holdTime = now - headPressMs;
             if (holdTime >= HOLD_MIN_MS) {
@@ -73,14 +66,12 @@ void Touch::update() {
                     headEvent = TouchEvent::HOLDING;
                 }
             }
-            // If holdTime < HOLD_MIN_MS, event stays NONE (waiting)
         }
     }
     
     // ========== CHIN SENSOR (OPTIONAL) ==========
     #ifdef TOUCH_CHIN_ENABLED
     if (chinEnabled) {
-        // Chin sensor is Active HIGH
         chinRaw = digitalRead(TOUCH_CHIN) == HIGH;
         
         if (chinRaw != chinState) {
@@ -114,7 +105,6 @@ void Touch::update() {
     #endif
 }
 
-// Event getters
 TouchEvent Touch::getHeadEvent() { return headEvent; }
 TouchEvent Touch::getChinEvent() { 
     #ifdef TOUCH_CHIN_ENABLED
@@ -124,7 +114,6 @@ TouchEvent Touch::getChinEvent() {
     #endif
 }
 
-// Raw state getters
 bool Touch::isHeadPressed() { return headState; }
 bool Touch::isChinPressed() { 
     #ifdef TOUCH_CHIN_ENABLED
@@ -142,7 +131,6 @@ bool Touch::isChinHeld() {
     #endif
 }
 
-// Hold duration
 uint32_t Touch::getHeadHoldDuration() {
     return headState ? (millis() - headPressMs) : 0;
 }

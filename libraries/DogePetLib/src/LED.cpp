@@ -1,7 +1,7 @@
-#include "include/LED.h"
+// LED.cpp - WS2812 NeoPixel status LED
+#include "LED.h"
 #include <Adafruit_NeoPixel.h>
 
-// WS2812 NeoPixel configuration
 static Adafruit_NeoPixel strip(1, LED_PIN, NEO_GRB + NEO_KHZ800);
 
 uint8_t LED::brightness = LED_BRIGHTNESS;
@@ -11,7 +11,6 @@ void LED::init() {
     strip.setBrightness(brightness);
     strip.clear();
     strip.show();
-    
     Serial.println("{\"status\":\"info\",\"msg\":\"LED Init\"}");
 }
 
