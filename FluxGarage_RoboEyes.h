@@ -26,10 +26,13 @@
 #ifndef _FLUXGARAGE_ROBOEYES_H
 #define _FLUXGARAGE_ROBOEYES_H
 
+// External controls - must be defined in main sketch
+extern bool gEyesAutoFlush;
+extern int gEyesViewportYMax;
 
-// Display colors
-uint8_t BGCOLOR = 0; // background and overlays
-uint8_t MAINCOLOR = 1; // drawings
+// Display colors (inline to avoid multiple definition errors)
+inline uint8_t BGCOLOR = 0; // background and overlays
+inline uint8_t MAINCOLOR = 1; // drawings
 
 // For mood type switch
 #define DEFAULT 0
@@ -42,14 +45,15 @@ uint8_t MAINCOLOR = 1; // drawings
 #define OFF 0
 
 // For switch "predefined positions"
-#define N 1 // north, top center
-#define NE 2 // north-east, top right
-#define E 3 // east, middle right
-#define SE 4 // south-east, bottom right
-#define S 5 // south, bottom center
-#define SW 6 // south-west, bottom left
-#define W 7 // west, middle left
-#define NW 8 // north-west, top left 
+// Note: Using POS_ prefix to avoid conflicts with ArduinoJson template parameters
+#define POS_N 1 // north, top center
+#define POS_NE 2 // north-east, top right
+#define POS_E 3 // east, middle right
+#define POS_SE 4 // south-east, bottom right
+#define POS_S 5 // south, bottom center
+#define POS_SW 6 // south-west, bottom left
+#define POS_W 7 // west, middle left
+#define POS_NW 8 // north-west, top left 
 // for middle center set "DEFAULT"
 
 
@@ -315,42 +319,42 @@ void setPosition(unsigned char position)
   {
     switch (position)
     {
-    case N:
+    case POS_N:
       // North, top center
       eyeLxNext = getScreenConstraint_X()/2;
       eyeLyNext = 0;
       break;
-    case NE:
+    case POS_NE:
       // North-east, top right
       eyeLxNext = getScreenConstraint_X();
       eyeLyNext = 0;
       break;
-    case E:
+    case POS_E:
       // East, middle right
       eyeLxNext = getScreenConstraint_X();
       eyeLyNext = getScreenConstraint_Y()/2;
       break;
-    case SE:
+    case POS_SE:
       // South-east, bottom right
       eyeLxNext = getScreenConstraint_X();
       eyeLyNext = getScreenConstraint_Y();
       break;
-    case S:
+    case POS_S:
       // South, bottom center
       eyeLxNext = getScreenConstraint_X()/2;
       eyeLyNext = getScreenConstraint_Y();
       break;
-    case SW:
+    case POS_SW:
       // South-west, bottom left
       eyeLxNext = 0;
       eyeLyNext = getScreenConstraint_Y();
       break;
-    case W:
+    case POS_W:
       // West, middle left
       eyeLxNext = 0;
       eyeLyNext = getScreenConstraint_Y()/2;
       break;
-    case NW:
+    case POS_NW:
       // North-west, top left
       eyeLxNext = 0;
       eyeLyNext = 0;
@@ -715,7 +719,11 @@ void drawEyes(){
 } // end of drawEyes method
 
 
-}; // end of class roboEyes
+}; // end of class RoboEyes
 
+// Typedef for common display type used in DogePet
+// This allows using 'roboEyes' instead of 'RoboEyes<Adafruit_SH1106G>'
+#include <Adafruit_SH110X.h>
+using roboEyes = RoboEyes<Adafruit_SH1106G>;
 
 #endif

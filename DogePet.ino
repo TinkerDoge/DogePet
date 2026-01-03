@@ -18,7 +18,7 @@ int gEyesViewportYMax = 0;
 // HARDWARE OBJECTS
 // =============================================================================
 Adafruit_SH1106G display(SCREEN_W, SCREEN_H, &Wire, OLED_RESET);
-roboEyes Eyes;
+roboEyes Eyes(display);
 
 // =============================================================================
 // TIMING
@@ -34,8 +34,12 @@ void setup() {
   // Wait a moment for Serial to initialize
   delay(100);
 
+  // Load Hardware Config (Pins)
+  loadHardwareConfig();
+  HardwareConfig* config = getHardwareConfig();
+
   // Initialize I2C
-  Wire.begin(I2C_SDA, I2C_SCL, 400000);
+  Wire.begin(config->i2c_sda, config->i2c_scl, 400000);
 
   // Initialize display
   if (!display.begin(SCREEN_ADDR, true)) {
@@ -60,7 +64,7 @@ void setup() {
   Eyes.setIdleMode(true, 4, 5);
 
   // Button setup
-  pinMode(FUNC_BTN, INPUT);
+  pinMode(config->func_btn, INPUT);
 
   // Initialize Serial command handler
   setupSerialCmd(&Eyes);
@@ -85,8 +89,9 @@ void loop() {
   }
 
   // Simple button check (for testing)
+  HardwareConfig* config = getHardwareConfig();
   static bool lastBtn = false;
-  bool btn = digitalRead(FUNC_BTN) == HIGH;
+  bool btn = digitalRead(config->func_btn) == HIGH;
   if (btn && !lastBtn) {
     Eyes.blink();
     Serial.println("{\"event\":\"button\",\"action\":\"pressed\"}");

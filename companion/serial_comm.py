@@ -40,10 +40,16 @@ class SerialComm:
         """Auto-detect ESP32 COM port"""
         ports = serial.tools.list_ports.comports()
         for p in ports:
-            # Common ESP32 identifiers
+            # ESP32-S3 native USB (Espressif VID: 0x303A)
+            if p.vid == 0x303A:
+                return p.device
+            # Common USB-to-Serial chips used with ESP32
             if "CP210" in p.description or "CH340" in p.description or \
-               "USB Serial" in p.description or "ESP32" in p.description or \
-               "USB-SERIAL" in p.description:
+               "ESP32" in p.description or "USB-SERIAL" in p.description:
+                return p.device
+        # Fallback: any USB Serial Device
+        for p in ports:
+            if "USB Serial" in p.description:
                 return p.device
         return None
     
@@ -127,11 +133,24 @@ class SerialComm:
     
     def get_settings(self) -> Dict[str, Any]:
         """Get current settings from device"""
-        return self.send_command({"cmd": "get_settings"}) or {"status": "error"}
+        return self.send_command({"cmd": "get_eyes"}) or {"status": "error"}
     
     def trigger_action(self, action: str) -> Dict[str, Any]:
         """Trigger an animation action"""
         return self.send_command({"cmd": "action", "type": action}) or {"status": "error"}
+
+    def get_pinout(self) -> Dict[str, Any]:
+        """Get current pinout from device"""
+        return self.send_command({"cmd": "get_pinout"}) or {"status": "error"}
+
+    def set_pinout(self, pinout: Dict[str, Any]) -> Dict[str, Any]:
+        """Update pinout settings"""
+        cmd = {"cmd": "set_pinout", **pinout}
+        return self.send_command(cmd) or {"status": "error"}
+
+    def get_sensors(self) -> Dict[str, Any]:
+        """Get live sensor data"""
+        return self.send_command({"cmd": "get_sensors"}) or {"status": "error"}
     
     def _read_loop(self):
         """Background thread for reading events from device"""

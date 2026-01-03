@@ -3,122 +3,293 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DogePet OS v2.0 // DARK</title>
-    <link href="https://fonts.googleapis.com/css2?family=Bungee&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <title>DogePet OS // GAME_MODE</title>
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;700&family=Press+Start+2P&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
 </head>
-<body class="retro-dark">
-    <div class="halftone-overlay"></div>
+<body class="retro-theme">
+    <div class="scanlines"></div>
     
-    <div class="desktop-wrapper">
-        <header class="taskbar">
-            <div class="brand">DOGEPET_SYSTEM.EXE</div>
-            <div id="status" class="status-chip disconnected">
-                <span class="status-dot"></span>
-                <span id="statusText">SYSTEM_OFFLINE</span>
+    <!-- Start Screen Overlay -->
+    <div id="startScreen">
+        <img src="logo.png" style="width: 128px; image-rendering: pixelated; margin-bottom: 20px;">
+        <h1 class="blink-text">PRESS ANY KEY TO START</h1>
+    </div>
+
+    <div class="main-container">
+        <header class="game-header">
+            <div class="logo-area">
+                <img src="logo.png" class="logo-img" alt="Logo">
+                <div class="brand-text">
+                    <div>DOGE_PET</div>
+                    <div style="font-size: 0.6em; color: var(--accent-pink);">v2.0_ARCADE</div>
+                </div>
+            </div>
+            
+            <div style="display:flex; gap:15px; align-items:center;">
+                <!-- Global Save Button moved to Header -->
+                <button id="globalSaveBtn" class="action-btn" style="background: #ff4757; color: white; padding: 10px 20px; font-size: 0.8rem;">SAVE_HARDWARE_CONFIG</button>
+                
+                <div id="status" class="status-badge disconnected">
+                    <span class="status-dot"></span>
+                    <span id="statusText">SYSTEM OFFLINE</span>
+                </div>
             </div>
         </header>
 
-        <main class="grid-layout">
-            <div class="column">
-                <section class="window">
-                    <div class="window-header">LIVE_VISION.BMP</div>
-                    <div class="window-content oled-preview">
-                        <div class="canvas-container">
-                            <canvas id="oledCanvas" width="128" height="64"></canvas>
-                        </div>
-                        <div class="meta">RESOLUTION: 128x64 PIXELS</div>
-                    </div>
-                </section>
-
-                <section class="window">
-                    <div class="window-header">COM_PORT_PROTOCOL</div>
-                    <div class="window-content connection-area">
-                        <select id="portSelect">
-                            <option value="">SCANNING PORTS...</option>
-                        </select>
-                        <div class="button-row">
-                            <button id="refreshBtn" class="btn-retro">RESCAN</button>
-                            <button id="connectBtn" class="btn-retro primary">CONNECT</button>
-                        </div>
-                    </div>
-                </section>
+        <main class="dashboard-grid" style="grid-template-columns: 1fr;"> <!-- Enforce single col for main, internals use grid -->
+            <!-- Tabs Navigation (Scrollable) -->
+            <div class="tabs-nav" style="overflow-x: auto; white-space: nowrap; padding-bottom: 5px;">
+                <button class="tab-btn active" data-tab="eyes">APP_EYES</button>
+                <button class="tab-btn" data-tab="oled">OLED</button>
+                <button class="tab-btn" data-tab="mic">MIC</button>
+                <button class="tab-btn" data-tab="amp">AMP</button>
+                <button class="tab-btn" data-tab="mpu">MPU</button>
+                <button class="tab-btn" data-tab="bat">BATTERY</button>
+                <button class="tab-btn" data-tab="vib">VIBRATOR</button>
+                <button class="tab-btn" data-tab="conn">WIFI/BT</button>
             </div>
 
-            <div class="column">
-                <section class="window">
-                    <div class="window-header">EYE_GEOMETRY_MATRIX</div>
-                    <div class="window-content">
-                        <div class="slider-box">
-                            <label>WIDTH <span id="widthVal">28</span></label>
-                            <input type="range" id="width" min="10" max="60" value="28">
+            <!-- TAB: EYES (Main App) -->
+            <div id="tab-eyes" class="tab-content active dashboard-grid">
+                <div class="col-left">
+                    <section class="game-card">
+                        <div class="card-header">LIVE_FEED</div>
+                        <div class="card-body">
+                            <div class="oled-frame"><canvas id="oledCanvas" width="128" height="64"></canvas></div>
                         </div>
-                        <div class="slider-box">
-                            <label>HEIGHT <span id="heightVal">40</span></label>
-                            <input type="range" id="height" min="10" max="60" value="40">
+                    </section>
+                    <section class="game-card">
+                        <div class="card-header">I/O_PORT</div>
+                        <div class="card-body">
+                            <select id="portSelect"><option value="">SCANNING PORTS...</option></select>
+                            <div class="connect-row">
+                                <button id="refreshBtn" class="scan">RESCAN</button>
+                                <button id="connectBtn" class="primary">CONNECT</button>
+                            </div>
                         </div>
-                        <div class="slider-box">
-                            <label>RADIUS <span id="radiusVal">8</span></label>
-                            <input type="range" id="radius" min="0" max="20" value="8">
+                    </section>
+                </div>
+                <div class="col-right">
+                    <section class="game-card">
+                        <div class="card-header">EXPRESSION_CONTROLS</div>
+                        <div class="card-body">
+                             <!-- Reusing existing controls simplified -->
+                             <div class="mood-grid" id="moodGroup">
+                                <button class="mood-btn active" data-value="0">DEFAULT</button>
+                                <button class="mood-btn" data-value="3">HAPPY</button>
+                                <button class="mood-btn" data-value="2">ANGRY</button>
+                                <button class="mood-btn" data-value="1">TIRED</button>
+                            </div>
+                            <div style="margin-top:15px; display:flex; gap:10px;">
+                                <button class="action-btn" data-action="blink" style="flex:1">BLINK</button>
+                                <button class="action-btn" data-action="laugh" style="flex:1">LAUGH</button>
+                                <button class="action-btn" data-action="confused" style="flex:1">CONFUSED</button>
+                            </div>
                         </div>
-                        <div class="slider-box">
-                            <label>SPACING <span id="spacingVal">10</span></label>
-                            <input type="range" id="spacing" min="-20" max="40" value="10">
-                        </div>
-                    </div>
-                </section>
+                    </section>
 
-                <section class="window">
-                    <div class="window-header">POSITION_VECTORS</div>
-                    <div class="window-content pos-center">
-                        <div class="pos-grid" id="posGrid">
-                            <button class="pos-btn" data-value="8">↖</button>
-                            <button class="pos-btn" data-value="1">↑</button>
-                            <button class="pos-btn" data-value="2">↗</button>
-                            <button class="pos-btn" data-value="7">←</button>
-                            <button class="pos-btn active" data-value="0">●</button>
-                            <button class="pos-btn" data-value="3">→</button>
-                            <button class="pos-btn" data-value="6">↙</button>
-                            <button class="pos-btn" data-value="5">↓</button>
-                            <button class="pos-btn" data-value="4">↘</button>
+                    <section class="game-card" style="margin-top: 15px;">
+                        <div class="card-header">EYE_SETTINGS</div>
+                        <div class="card-body setting-group">
+                            <label>WIDTH <span id="widthVal">36</span> <input type="range" id="width_slider" min="10" max="128" value="36"></label>
+                            <label>HEIGHT <span id="heightVal">36</span> <input type="range" id="height_slider" min="10" max="64" value="36"></label>
+                            <label>RADIUS <span id="radiusVal">8px</span> <input type="range" id="radius_slider" min="0" max="20" value="8"></label>
+                            <label>SPACING <span id="spacingVal">10px</span> <input type="range" id="spacing_slider" min="0" max="50" value="10"></label>
+                            <hr style="border-color:#333">
+                            <div class="toggle-grid">
+                                <label class="toggle-row">AUTO_BLINK <input type="checkbox" id="toggle_blink" checked></label>
+                                <label class="toggle-row">IDLE_MODE <input type="checkbox" id="toggle_idle" checked></label>
+                                <label class="toggle-row">SWEAT <input type="checkbox" id="toggle_sweat"></label>
+                                <label class="toggle-row">CURIOSITY <input type="checkbox" id="toggle_curiosity"></label>
+                                <label class="toggle-row">CYCLOPS <input type="checkbox" id="toggle_cyclops"></label>
+                            </div>
                         </div>
-                    </div>
-                </section>
+                    </section>
+                </div>
             </div>
 
-            <div class="column">
-                <section class="window">
-                    <div class="window-header">EMOTION_CHIP</div>
-                    <div class="window-content mood-grid" id="moodGroup">
-                        <button class="option-btn active" data-value="0">DEFAULT</button>
-                        <button class="option-btn" data-value="1">TIRED</button>
-                        <button class="option-btn" data-value="2">ANGRY</button>
-                        <button class="option-btn" data-value="3">HAPPY</button>
+            <!-- TAB: OLED -->
+            <div id="tab-oled" class="tab-content dashboard-grid">
+                <div class="col-left">
+                    <div class="game-card">
+                        <div class="card-header">PIN_CONFIG</div>
+                        <div class="card-body setting-group">
+                            <label>I2C_SDA <input type="number" id="pin_sda" class="pin-input"></label>
+                            <label>I2C_SCL <input type="number" id="pin_scl" class="pin-input"></label>
+                        </div>
                     </div>
-                </section>
-
-                <section class="window">
-                    <div class="window-header">SYSTEM_FLAGS</div>
-                    <div class="window-content flag-list">
-                        <label class="flag"><input type="checkbox" id="autoBlink" checked><span>AUTO_BLINK</span></label>
-                        <label class="flag"><input type="checkbox" id="idleMode" checked><span>IDLE_MODE</span></label>
-                        <label class="flag"><input type="checkbox" id="cyclops"><span>CYCLOPS_MODE</span></label>
-                        <label class="flag"><input type="checkbox" id="curiosity"><span>CURIOSITY_SIM</span></label>
-                        <label class="flag"><input type="checkbox" id="sweat"><span>SWEAT_LAYER</span></label>
+                </div>
+                <div class="col-right">
+                    <div class="game-card">
+                        <div class="card-header">TESTS</div>
+                        <div class="card-body action-grid">
+                            <button class="action-btn" data-action="test_oled_pattern">TEST_PATTERN</button>
+                            <button class="action-btn" data-action="test_oled_clear">CLEAR_SCREEN</button>
+                            <div style="grid-column: 1 / -1; margin-top: 10px;">
+                                <input type="text" id="oled_text_input" placeholder="TYPE_TEXT_HERE" style="width: 70%; padding: 5px; background: #333; border: 1px solid #555; color: white; font-family: var(--pixel-font);">
+                                <button class="action-btn" id="oledSendTxtBtn" style="width: 25%;">SEND</button>
+                            </div>
+                        </div>
                     </div>
-                </section>
-
-                <section class="window">
-                    <div class="window-header">MACRO_OVERRIDE</div>
-                    <div class="window-content action-stack">
-                        <button class="action-btn" data-action="blink">BLINK.EXE</button>
-                        <button class="action-btn" data-action="laugh">LAUGH.EXE</button>
-                        <button class="action-btn" data-action="confused">CONFUSE.EXE</button>
-                    </div>
-                </section>
+                </div>
             </div>
+
+            <!-- TAB: MIC -->
+            <div id="tab-mic" class="tab-content dashboard-grid">
+                <div class="col-left">
+                     <div class="game-card">
+                        <div class="card-header">PIN_CONFIG</div>
+                        <div class="card-body setting-group">
+                            <label>I2S_SD <input type="number" id="pin_mic_sd" class="pin-input"></label>
+                            <label>I2S_WS <input type="number" id="pin_mic_ws" class="pin-input"></label>
+                            <label>I2S_SCK <input type="number" id="pin_mic_sck" class="pin-input"></label>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-right">
+                     <div class="game-card">
+                        <div class="card-header">SPECTRUM_ANALYZER</div>
+                        <div class="card-body">
+                            <div class="sensor-display">LEVEL: <span id="mic-val">--</span> dB</div>
+                            <canvas id="micViz" width="300" height="100" style="background: #111; width: 100%; border: 1px solid #333; margin-top: 10px;"></canvas>
+                            <button class="action-btn" data-action="test_mic_read" style="margin-top: 5px;">READ_SAMPLE</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB: AMP -->
+            <div id="tab-amp" class="tab-content dashboard-grid">
+                <div class="col-left">
+                    <div class="game-card">
+                        <div class="card-header">PIN_CONFIG</div>
+                        <div class="card-body setting-group">
+                            <label>I2S_DOUT <input type="number" id="pin_i2s_do" class="pin-input"></label>
+                            <label>I2S_BCLK <input type="number" id="pin_i2s_bclk" class="pin-input"></label>
+                            <label>I2S_LRC <input type="number" id="pin_i2s_lrc" class="pin-input"></label>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-right">
+                    <div class="game-card">
+                        <div class="card-header">AUDIO_GEN</div>
+                        <div class="card-body action-grid">
+                            <button class="action-btn" data-action="test_tone_on">PLAY_440HZ</button>
+                            <button class="action-btn" data-action="test_tone_off">STOP</button>
+                            <div style="grid-column: 1 / -1; display:flex; gap:5px; align-items:center; margin-top:10px;">
+                                <input type="number" id="tone_freq" placeholder="Freq Hz" value="1000" style="width: 30%;">
+                                <input type="number" id="tone_dur" placeholder="Dur ms" value="500" style="width: 30%;">
+                                <button class="action-btn" id="playCustomToneBtn" style="flex:1;">PLAY</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB: MPU -->
+            <div id="tab-mpu" class="tab-content dashboard-grid">
+                 <div class="col-left">
+                    <div class="game-card">
+                        <div class="card-header">CONFIG</div>
+                        <div class="card-body">
+                            <p>Uses Shared I2C Bus</p>
+                            <label>ADDR: 0x68 (Fixed)</label>
+                            <hr style="border-color:#333">
+                            <div>ACC_X: <span id="acc-x">0</span></div>
+                            <div>ACC_Y: <span id="acc-y">0</span></div>
+                            <div>ACC_Z: <span id="acc-z">0</span></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-right">
+                    <div class="game-card">
+                        <div class="card-header">3D_ORIENTATION</div>
+                        <div class="card-body" style="height: 300px; display: flex; align-items: center; justify-content: center;">
+                            <div class="scene">
+                                <div class="cube" id="mpu-cube">
+                                    <div class="cube-face front">FRONT</div>
+                                    <div class="cube-face back">BACK</div>
+                                    <div class="cube-face right">RIGHT</div>
+                                    <div class="cube-face left">LEFT</div>
+                                    <div class="cube-face top">TOP</div>
+                                    <div class="cube-face bottom">BOTTOM</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB: BATTERY -->
+            <div id="tab-bat" class="tab-content dashboard-grid">
+                 <div class="col-left">
+                    <div class="game-card">
+                        <div class="card-header">PIN_CONFIG</div>
+                        <div class="card-body setting-group">
+                            <label>VBAT_PIN <input type="number" id="pin_vbat" class="pin-input"></label>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-right">
+                    <div class="game-card">
+                        <div class="card-header">STATUS</div>
+                        <div class="card-body" style="text-align:center;">
+                            <div style="font-size:2.5rem; color:var(--accent-green);" id="vbat-val">-- V</div>
+                            <div style="font-size:1.5rem; color:var(--accent-pink); margin-top:10px;" id="vbat-pct">-- %</div>
+                            <div style="width:80%; height:20px; background:#333; margin:10px auto; border-radius:10px; overflow:hidden;">
+                                <div id="vbat-bar" style="width:0%; height:100%; background:linear-gradient(90deg, #ff4757, #2ed573);"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB: VIBRATOR -->
+            <div id="tab-vib" class="tab-content dashboard-grid">
+                <div class="col-left">
+                     <div class="game-card">
+                        <div class="card-header">PIN_CONFIG</div>
+                        <div class="card-body setting-group">
+                            <label>VIB_LEFT <input type="number" id="pin_vibL" class="pin-input"></label>
+                            <label>VIB_RIGHT <input type="number" id="pin_vibR" class="pin-input"></label>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-right">
+                    <div class="game-card">
+                        <div class="card-header">HAPTIC_SEQUENCER</div>
+                        <div class="card-body action-grid">
+                            <div style="display:flex; gap:10px;">
+                                <button class="action-btn" style="flex:1" data-action="test_vib_l_on">L_ON</button>
+                                <button class="action-btn" style="flex:1" data-action="test_vib_l_off">L_OFF</button>
+                            </div>
+                            <div style="display:flex; gap:10px;">
+                                <button class="action-btn" style="flex:1" data-action="test_vib_r_on">R_ON</button>
+                                <button class="action-btn" style="flex:1" data-action="test_vib_r_off">R_OFF</button>
+                            </div>
+                            <hr style="border-color:#333; grid-column: 1 / -1;">
+                            <button class="action-btn" data-action="test_vib_seq1">SEQ_HEARTBEAT</button>
+                            <button class="action-btn" data-action="test_vib_seq2">SEQ_ALARM</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB: WIFI/BT -->
+            <div id="tab-conn" class="tab-content dashboard-grid">
+                <div class="col-left">
+                    <div class="game-card">
+                        <div class="card-header">WIRELESS</div>
+                        <div class="card-body">
+                            <p style="opacity:0.6;">WIFI & BLUETOOTH MODULES</p>
+                            <button class="action-btn" disabled>SCAN_NETWORKS (WIP)</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
         </main>
-    </div>
     <script src="app.js"></script>
 </body>
 </html>

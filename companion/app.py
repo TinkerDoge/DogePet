@@ -98,6 +98,25 @@ def trigger_action():
     result = serial_comm.trigger_action(action)
     return jsonify(result)
 
+@app.route('/api/pinout', methods=['GET', 'POST'])
+def handle_pinout():
+    """Get or Set hardware pinout"""
+    if not serial_comm.connected:
+        return jsonify({"status": "error", "msg": "Not connected"})
+    
+    if request.method == 'GET':
+        return jsonify(serial_comm.get_pinout())
+    else:
+        data = request.get_json() or {}
+        return jsonify(serial_comm.set_pinout(data))
+
+@app.route('/api/sensors', methods=['GET'])
+def handle_sensors():
+    """Get sensor data (battery, mic, imu)"""
+    if not serial_comm.connected:
+        return jsonify({"status": "error", "msg": "Not connected"})
+    return jsonify(serial_comm.get_sensors())
+
 # =============================================================================
 # MAIN
 # =============================================================================

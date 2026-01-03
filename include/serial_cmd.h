@@ -3,17 +3,37 @@
 #pragma once
 
 #include <Arduino.h>
+#include "../FluxGarage_RoboEyes.h"
 
-// Forward declaration
-class roboEyes;
+// Command string definitions (match WebApp_Protocol.md)
+#define CMD_CONNECT       "connect"
+#define CMD_SET_EYES      "set_eyes"
+#define CMD_GET_SETTINGS  "get_settings"
+#define CMD_ACTION        "action"
+#define CMD_SET_PINOUT    "set_pinout"
+#define CMD_GET_PINOUT    "get_pinout"
+#define CMD_GET_SENSORS   "get_sensors"
 
-// Initialize Serial command handler
+// Hardware Configuration
+struct HardwareConfig {
+    int i2c_sda;
+    int i2c_scl;
+    int func_btn;
+    int led_pin;
+    int vibro_left;
+    int vibro_right;
+    int vbat_pin;
+    // Audio / I2S
+    int i2s_do;
+    int i2s_bclk;
+    int i2s_lrc;
+    int mic_sd;
+    int mic_ws;
+    int mic_sck;
+};
+
+// Public API
 void setupSerialCmd(roboEyes* eyesPtr);
-
-// Process incoming Serial commands - call in loop()
 void processSerialCmd();
-
-// Command types
-#define CMD_SET_EYES    "set_eyes"
-#define CMD_GET_SETTINGS "get_settings"
-#define CMD_ACTION      "action"
+void loadHardwareConfig();
+HardwareConfig* getHardwareConfig();

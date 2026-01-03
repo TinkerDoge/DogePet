@@ -9,30 +9,101 @@
 const state = {
     connected: false,
     settings: {
-        width: 28,
-        height: 40,
+        width: 36,
+        height: 36,
         radius: 8,
         spacing: 10,
         mood: 0,
         position: 0,
         autoBlink: true,
         idleMode: true,
-        cyclops: false,
+        sweat: false,
         curiosity: false,
-        sweat: false
+        cyclops: false
     }
 };
+
+// Tab Switching Logic
+document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        // Update tabs
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        
+        // Update content
+        const tabId = btn.dataset.tab;
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+        document.getElementById(`tab-${tabId}`).classList.add('active');
+    });
+});
+
+// Start Screen Handler (Simplified)
+document.getElementById('startScreen').addEventListener('click', function() {
+    this.style.opacity = '0';
+    setTimeout(() => {
+        this.style.display = 'none';
+        fetchPorts();
+    }, 500);
+});
+
+// Konami Code
+const konami = ['ArrowUp','ArrowUp','ArrowDown','ArrowDown','ArrowLeft','ArrowRight','ArrowLeft','ArrowRight','b','a'];
+let kPos = 0;
+document.addEventListener('keydown', (e) => {
+    if (e.key === konami[kPos]) {
+        kPos++;
+        if (kPos === konami.length) {
+            playSound('start');
+            alert('CHEAT CODE ACTIVATED: GOD MODE');
+            kPos = 0;
+        }
+    } else {
+        kPos = 0;
+    }
+});
 
 let debounceTimer = null;
 let oledCtx = null;
 
 // =============================================================================
+// API HELPER
+// =============================================================================
+async function fetchPorts() {
+    const sel = document.getElementById('portSelect');
+    if (!sel) return;
+    sel.innerHTML = '<option>SCANNING...</option>';
+    try {
+        const res = await fetch('/api/ports');
+        const data = await res.json();
+        const ports = data.ports || [];
+        
+        sel.innerHTML = '';
+        if (ports.length === 0) {
+            const opt = document.createElement('option');
+            opt.text = "NO DEVICES FOUND";
+            sel.add(opt);
+            return;
+        }
+        ports.forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = p.port;
+            opt.text = `${p.port} - ${p.description}`;
+            sel.add(opt);
+        });
+    } catch (e) {
+        sel.innerHTML = '<option>ERROR</option>';
+    }
+}
+
+// =============================================================================
 // INITIALIZATION
 // =============================================================================
 document.addEventListener('DOMContentLoaded', () => {
+    // Canvas contexts are initialized in renderPreview
+    // Event listeners are attached below
     initCanvas();
     initEventListeners();
-    refreshPorts();
+    fetchPorts();
     renderPreview();
     
     // Poll for connection status
@@ -45,114 +116,307 @@ function initCanvas() {
     oledCtx.imageSmoothingEnabled = false;
 }
 
+// Event Listeners
 function initEventListeners() {
-    // Refresh ports button
-    document.getElementById('refreshBtn').addEventListener('click', refreshPorts);
-    
-    // Connect button
-    document.getElementById('connectBtn').addEventListener('click', toggleConnection);
-    
     // Sliders
     document.querySelectorAll('input[type="range"]').forEach(slider => {
-        slider.addEventListener('input', handleSliderChange);
+        slider.addEventListener('input', e => {
+            const id = e.target.id;
+            const val = parseInt(e.target.value);
+            
+            // Map slider ID to settings key
+            let key = id;
+            if (id === 'width_slider') key = 'width';
+            else if (id === 'height_slider') key = 'height';
+            else if (id === 'radius_slider') key = 'radius';
+            else if (id === 'spacing_slider') key = 'spacing';
+
+            state.settings[key] = val;
+            
+            // Update UI label
+            const labelEl = document.getElementById(
+                id === 'width_slider' ? 'widthVal' : 
+                id === 'height_slider' ? 'heightVal' :
+                id === 'radius_slider' ? 'radiusVal' : 'spacingVal'
+            );
+            if (labelEl) labelEl.textContent = val + (id.includes('radius')||id.includes('spacing')?'px':'');
+            
+            // Debounce send
+            sendSettings();
+            renderPreview();
+        });
     });
     
-    // Mood buttons
-    document.querySelectorAll('#moodGroup .option-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => handleOptionSelect(e, 'moodGroup', 'mood'));
+    // Mood Buttons (Fixed Selector)
+    document.querySelectorAll('.mood-btn').forEach(btn => {
+        btn.addEventListener('click', e => {
+            document.querySelectorAll('.mood-btn').forEach(b => b.classList.remove('active'));
+            const target = e.currentTarget; // Use currenTarget to get button even if clicked on child
+            target.classList.add('active');
+            state.settings.mood = parseInt(target.dataset.value);
+            sendSettings();
+            renderPreview();
+        });
     });
     
-    // Position buttons
-    document.querySelectorAll('#posGrid .pos-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => handleOptionSelect(e, 'posGrid', 'position'));
+    // Position D-Pad (Fixed Selector)
+    document.querySelectorAll('.dpad-btn').forEach(btn => {
+        btn.addEventListener('click', e => {
+            document.querySelectorAll('.dpad-btn').forEach(b => b.classList.remove('active'));
+            const target = e.currentTarget;
+            target.classList.add('active');
+            state.settings.position = parseInt(target.dataset.value);
+            sendSettings();
+            renderPreview();
+        });
     });
     
-    // Toggles
-    document.querySelectorAll('.toggle input').forEach(toggle => {
-        toggle.addEventListener('change', handleToggleChange);
+    // Toggles (Fixed Selector)
+    document.querySelectorAll('.toggle-row input[type="checkbox"]').forEach(toggle => {
+        toggle.addEventListener('change', e => {
+            const id = e.target.id;
+            let key = id;
+            // Map toggle IDs to keys
+            if(id === 'toggle_blink') key = 'autoBlink';
+            else if(id === 'toggle_idle') key = 'idleMode';
+            else if(id === 'toggle_sweat') key = 'sweat';
+            else if(id === 'toggle_curiosity') key = 'curiosity';
+            else if(id === 'toggle_cyclops') key = 'cyclops';
+            
+            state.settings[key] = e.target.checked;
+            sendSettings();
+            renderPreview();
+        });
     });
     
-    // Action buttons
+    // Action Buttons
     document.querySelectorAll('.action-btn').forEach(btn => {
-        btn.addEventListener('click', handleActionClick);
+        btn.addEventListener('click', e => {
+            const action = e.currentTarget.dataset.action;
+            triggerAction(action);
+        });
     });
+    
+    // START SCREEN
+    const startScreen = document.getElementById('startScreen');
+    if (startScreen) {
+        document.addEventListener('keydown', () => {
+            startScreen.style.opacity = '0';
+            setTimeout(() => startScreen.remove(), 500);
+        }, { once: true });
+        startScreen.addEventListener('click', () => {
+            startScreen.style.opacity = '0';
+            setTimeout(() => startScreen.remove(), 500);
+        }, { once: true });
+    }
+
+    // TABS
+    const tabs = document.querySelectorAll('.tab-btn');
+    const contents = document.querySelectorAll('.tab-content');
+
+    tabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+            tabs.forEach(t => t.classList.remove('active'));
+            contents.forEach(c => c.classList.remove('active'));
+            
+            tab.classList.add('active');
+            const target = document.getElementById(`tab-${tab.dataset.tab}`);
+            if (target) target.classList.add('active');
+        });
+    });
+
+    // Global Save Button
+    const globalSaveBtn = document.getElementById('globalSaveBtn');
+    if (globalSaveBtn) {
+        globalSaveBtn.addEventListener('click', async () => {
+            if (confirm('Save ALL HARDWARE SETTINGS and REBOOT device?')) {
+                // Collect pins from all various tabs
+                // Helper to safely get value or default to -1 (unused)
+                const val = (id) => {
+                    const el = document.getElementById(id);
+                    return el && el.value ? parseInt(el.value) : -1;
+                };
+
+                const pinout = {
+                    sda: val('pin_sda'),
+                    scl: val('pin_scl'),
+                    // MIC
+                    mic_sd: val('pin_mic_sd'),
+                    mic_ws: val('pin_mic_ws'),
+                    mic_sck: val('pin_mic_sck'),
+                    // AMP
+                    i2s_do: val('pin_i2s_do'),
+                    i2s_bclk: val('pin_i2s_bclk'),
+                    i2s_lrc: val('pin_i2s_lrc'),
+                    // REST
+                    btn: val('pin_btn'), // Might need to add this back to UI or assume fixed
+                    led: val('pin_led'), // Assuming this is now "OLED" tab or similar? Wait, user removed specific LED tab? No, LED usually global. Let's keep looking.
+                    vibL: val('pin_vibL'),
+                    vibR: val('pin_vibR'),
+                    vbat: val('pin_vbat')
+                };
+                
+                try {
+                    // Save pinout first
+                    await fetch('/api/pinout', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(pinout)
+                    });
+                    
+                    // Trigger device restart
+                    await fetch('/api/action', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'save_restart' })
+                    });
+                    
+                    alert('Configuration saved. Device restarting...');
+                } catch(e) {
+                    alert('Error saving configuration');
+                }
+            }
+        });
+    }
+
+    // Tab Loop for sensors (Only poll if active)
+    setInterval(() => {
+        if (!state.connected) return;
+        
+        // Battery Tab
+        if (document.getElementById('tab-bat') && document.getElementById('tab-bat').classList.contains('active')) {
+             updateBattery();
+        }
+        // Mic Tab
+        if (document.getElementById('tab-mic') && document.getElementById('tab-mic').classList.contains('active')) {
+             updateMic();
+        }
+        // MPU Tab
+        if (document.getElementById('tab-mpu') && document.getElementById('tab-mpu').classList.contains('active')) {
+             updateMPU();
+        }
+    }, 500); // 2Hz poll for responsiveness
+
+    // Connection Controls
+    document.getElementById('refreshBtn').addEventListener('click', fetchPorts);
+    document.getElementById('connectBtn').addEventListener('click', toggleConnection);
 }
 
 // =============================================================================
-// API CALLS
+// API CALLS & VISUALIZATION
 // =============================================================================
-async function refreshPorts() {
+
+async function updateBattery() {
     try {
-        const resp = await fetch('/api/ports');
+        const resp = await fetch('/api/sensors?type=bat');
         const data = await resp.json();
-        
-        const select = document.getElementById('portSelect');
-        select.innerHTML = '<option value="">Select COM Port...</option>';
-        
-        data.ports.forEach(port => {
-            const option = document.createElement('option');
-            option.value = port.port;
-            option.textContent = `${port.port} - ${port.description}`;
-            if (port.port === data.suggested) {
-                option.textContent += ' (ESP32)';
+        if (data.status === 'ok') {
+            const el = document.getElementById('vbat-val');
+            const pctEl = document.getElementById('vbat-pct');
+            const barEl = document.getElementById('vbat-bar');
+            
+            const v = data.vbat || 0;
+            if (el) el.textContent = v > 0 ? v.toFixed(2) + ' V' : '-- V';
+            
+            // Calc percentage (3.2V to 4.2V lipo curve approx)
+            let pct = 0;
+            if (v > 3.0) {
+                pct = Math.min(100, Math.max(0, (v - 3.2) / (4.2 - 3.2) * 100));
             }
-            select.appendChild(option);
-        });
-        
-        // Auto-select suggested port
-        if (data.suggested) {
-            select.value = data.suggested;
+            if (pctEl) pctEl.textContent = Math.round(pct) + ' %';
+            if (barEl) barEl.style.width = pct + '%';
         }
-        
-        // Update connection state
-        if (data.connected) {
-            select.value = data.current_port;
-            setConnected(true);
-        }
-    } catch (e) {
-        console.error('Failed to refresh ports:', e);
-    }
+    } catch(e) {}
 }
+
+async function updateMic() {
+    try {
+        const resp = await fetch('/api/sensors?type=mic');
+        const data = await resp.json();
+        if (data.status === 'ok') {
+            const el = document.getElementById('mic-val');
+            if (el) el.textContent = data.mic_db ? data.mic_db.toFixed(1) : '--';
+            
+            // Visualize Spectrum (Simulated for now based on level)
+            const canvas = document.getElementById('micViz');
+            if (canvas) {
+                const ctx = canvas.getContext('2d');
+                const w = canvas.width;
+                const h = canvas.height;
+                ctx.clearRect(0, 0, w, h);
+                
+                // Draw 2-channel simulated bars
+                const db = data.mic_db || 0;
+                const barH = Math.min(h, (db / 100) * h);
+                
+                ctx.fillStyle = '#ff4757';
+                ctx.fillRect(w * 0.25 - 20, h - barH, 40, barH); // Left
+                ctx.fillStyle = '#2ed573';
+                ctx.fillRect(w * 0.75 - 20, h - barH * 0.9, 40, barH * 0.9); // Right
+            }
+        }
+    } catch(e) {}
+}
+
+async function updateMPU() {
+    try {
+        const resp = await fetch('/api/sensors?type=mpu');
+        const data = await resp.json();
+        if (data.status === 'ok') {
+            if(document.getElementById('acc-x')) document.getElementById('acc-x').innerText = data.ax;
+            if(document.getElementById('acc-y')) document.getElementById('acc-y').innerText = data.ay;
+            if(document.getElementById('acc-z')) document.getElementById('acc-z').innerText = data.az;
+            
+            // 3D Visualization
+            const cube = document.getElementById('mpu-cube');
+            if(cube) {
+                // Map accelerometer to rotation (rough approx)
+                // ax -> rotateY, ay -> rotateX
+                const rotX = data.ay * 90; 
+                const rotY = data.ax * 90;
+                // Maintain center pivot
+                cube.style.transform = `translateZ(-100px) rotateX(${rotX}deg) rotateY(${rotY}deg)`;
+            }
+        }
+    } catch(e) {}
+}
+
+
 
 async function toggleConnection() {
     const btn = document.getElementById('connectBtn');
+    const port = document.getElementById('portSelect').value;
     
-    if (state.connected) {
-        // Disconnect
+    if (!state.connected) {
+        if (!port) return alert('Select a port!');
         try {
-            await fetch('/api/disconnect', { method: 'POST' });
-            setConnected(false);
-        } catch (e) {
-            console.error('Disconnect failed:', e);
-        }
-    } else {
-        // Connect
-        const port = document.getElementById('portSelect').value;
-        btn.textContent = 'Connecting...';
-        btn.disabled = true;
-        
-        try {
-            const resp = await fetch('/api/connect', {
+            const res = await fetch('/api/connect', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ port })
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ port: port })
             });
-            const data = await resp.json();
-            
+            const data = await res.json();
             if (data.status === 'ok') {
-                setConnected(true);
-                if (data.settings) {
-                    applySettings(data.settings);
-                }
-            } else {
-                alert('Connection failed: ' + (data.msg || 'Unknown error'));
+                state.connected = true;
+                btn.textContent = 'DISCONNECT';
+                btn.classList.add('connected');
+                document.getElementById('status').classList.remove('disconnected');
+                document.getElementById('status').classList.add('connected');
+                document.getElementById('statusText').textContent = 'SYSTEM ONLINE';
+                document.getElementById('statusText').textContent = 'SYSTEM ONLINE';
+                getPinout(); // Fetch initial pinout on connect
+                if(data.settings) applySettings(data.settings); // Sync settings
+                alert(data.msg);
             }
-        } catch (e) {
-            console.error('Connect failed:', e);
-            alert('Connection failed');
-        }
-        
-        btn.disabled = false;
+        } catch (e) { alert('Connection Error'); }
+    } else {
+        await fetch('/api/disconnect', { method: 'POST' });
+        state.connected = false;
+        btn.textContent = 'CONNECT';
+        btn.classList.remove('connected');
+        document.getElementById('status').classList.add('disconnected');
+        document.getElementById('status').classList.remove('connected');
+        document.getElementById('statusText').textContent = 'SYSTEM OFFLINE';
     }
 }
 
@@ -180,19 +444,85 @@ async function sendSettings() {
     }
 }
 
-async function triggerAction(action) {
+async function sendAction(action, value=null) {
     if (!state.connected) return;
-    
     try {
         await fetch('/api/action', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action })
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ action: action, value: value })
         });
-    } catch (e) {
-        console.error('Failed to trigger action:', e);
+    } catch(e) { console.error(e); }
+}
+
+// Alias for button handlers
+const triggerAction = sendAction;
+
+// Animation stub for visual feedback
+function animateBlink() {
+    // Simple canvas flash or just let the update loop handle it
+    const canvas = document.getElementById('oledCanvas');
+    if(canvas) {
+        canvas.style.opacity = '0.5';
+        setTimeout(() => canvas.style.opacity = '1', 100);
     }
 }
+
+async function getPinout() {
+    if (!state.connected) return;
+    try {
+        const resp = await fetch('/api/pinout');
+        const data = await resp.json();
+        if (data.status === 'ok') {
+            const setVal = (id, val) => {
+                const el = document.getElementById(id);
+                if (el) el.value = (val !== undefined && val !== -1) ? val : '';
+            };
+            
+            setVal('pin_sda', data.sda);
+            setVal('pin_scl', data.scl);
+            setVal('pin_btn', data.btn);
+            setVal('pin_led', data.led);
+            // Audio
+            setVal('pin_mic_sd', data.mic_sd);
+            setVal('pin_mic_ws', data.mic_ws);
+            setVal('pin_mic_sck', data.mic_sck);
+            setVal('pin_i2s_do', data.i2s_do);
+            setVal('pin_i2s_bclk', data.i2s_bclk);
+            setVal('pin_i2s_lrc', data.i2s_lrc);
+            // Phase 4 extended
+            setVal('pin_vibL', data.vibL);
+            setVal('pin_vibR', data.vibR);
+            setVal('pin_vbat', data.vbat);
+        }
+    } catch (e) {
+        console.error('Failed to get pinout:', e);
+    }
+}
+
+// Additional init for new inputs
+document.addEventListener('DOMContentLoaded', () => {
+    // OLED Text Send
+    const btnOled = document.getElementById('oledSendTxtBtn');
+    if(btnOled) {
+        btnOled.addEventListener('click', () => {
+            const txt = document.getElementById('oled_text_input').value;
+            sendAction('test_oled_text', txt);
+        });
+    }
+    
+    // Custom Tone
+    const btnTone = document.getElementById('playCustomToneBtn');
+    if(btnTone) {
+        btnTone.addEventListener('click', () => {
+            const freq = document.getElementById('tone_freq').value;
+            const dur = document.getElementById('tone_dur').value;
+            // Send composite value or new structure? 
+            // Simple generic action for now: "freq,dur" string
+            sendAction('test_tone_custom', `${freq},${dur}`);
+        });
+    }
+});
 
 // =============================================================================
 // EVENT HANDLERS
@@ -276,7 +606,7 @@ function applySettings(settings) {
     // Update sliders
     ['width', 'height', 'radius', 'spacing'].forEach(key => {
         if (settings[key] !== undefined) {
-            const slider = document.getElementById(key);
+            const slider = document.getElementById(key + '_slider');
             const valDisplay = document.getElementById(key + 'Val');
             if (slider) slider.value = settings[key];
             if (valDisplay) valDisplay.textContent = settings[key] + 'px';
@@ -294,8 +624,17 @@ function applySettings(settings) {
     });
     
     // Update toggles
-    ['autoBlink', 'idleMode', 'cyclops', 'curiosity', 'sweat'].forEach(key => {
-        const toggle = document.getElementById(key);
+    const toggleMap = {
+        'autoBlink': 'toggle_blink',
+        'idleMode': 'toggle_idle',
+        'sweat': 'toggle_sweat',
+        'curiosity': 'toggle_curiosity',
+        'cyclops': 'toggle_cyclops'
+    };
+    
+    Object.keys(toggleMap).forEach(key => {
+        const id = toggleMap[key];
+        const toggle = document.getElementById(id);
         if (toggle && settings[key] !== undefined) {
             toggle.checked = settings[key];
         }
