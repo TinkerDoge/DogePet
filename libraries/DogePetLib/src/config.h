@@ -119,6 +119,10 @@ static constexpr uint16_t HOLD_MIN_MS         = 400;
 static constexpr uint32_t DEFAULT_IDLE_TIMEOUT_MS  = 60000;   // 1 min to dim
 static constexpr uint32_t DEFAULT_SLEEP_TIMEOUT_MS = 120000;  // 2 min to sleep
 static constexpr uint8_t  DIM_BRIGHTNESS   = 30;
+// Sleep mode power saving
+static constexpr uint32_t VBAT_READ_INTERVAL_SLEEP_MS = 10000;  // Read battery every 10s when sleeping (vs 1s active)
+static constexpr uint32_t VBAT_LOG_INTERVAL_SLEEP_MS = 60000;   // Log battery every 60s when sleeping (vs 30s active)
+static constexpr uint32_t SLEEP_LOOP_DELAY_MS = 100;            // Delay in main loop when sleeping (reduces CPU usage)
 
 // =============================================================================
 // MOTION/IMU SETTINGS

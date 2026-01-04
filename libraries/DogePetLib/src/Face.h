@@ -67,4 +67,7 @@ private:
     
     // Internal draw methods
     static void drawSleepFace();
+    static void drawDimFace();
+    static void turnDisplayOff();
+    static void turnDisplayOn();
 };

@@ -54,8 +54,13 @@ float Power::readADC() {
 void Power::updateBatteryReading() {
     uint32_t now = millis();
     
+    // Use longer interval when sleeping to save power
+    uint32_t readInterval = (state == PowerState::SLEEPING) ? 
+                            VBAT_READ_INTERVAL_SLEEP_MS : 
+                            VBAT_READ_INTERVAL_MS;
+    
     // Only read battery at configured interval to avoid excessive ADC reads
-    if (now - lastVbatReadMs >= VBAT_READ_INTERVAL_MS) {
+    if (now - lastVbatReadMs >= readInterval) {
         cachedVoltage = readADC();
         cachedPercent = calculatePercent(cachedVoltage);
         lastVbatReadMs = now;
@@ -117,13 +122,18 @@ void Power::update() {
     uint32_t now = millis();
     uint32_t idleTime = now - lastActivityMs;
     
-    // Update battery reading periodically
+    // Update battery reading periodically (uses longer interval when sleeping)
     updateBatteryReading();
     
-    // Log battery status at configured interval
-    if (batteryInitialized && (now - lastVbatLogMs >= VBAT_LOG_INTERVAL_MS)) {
-        logStatus();
-        lastVbatLogMs = now;
+    // Log battery status at configured interval (longer when sleeping)
+    if (batteryInitialized) {
+        uint32_t logInterval = (state == PowerState::SLEEPING) ? 
+                               VBAT_LOG_INTERVAL_SLEEP_MS : 
+                               VBAT_LOG_INTERVAL_MS;
+        if (now - lastVbatLogMs >= logInterval) {
+            logStatus();
+            lastVbatLogMs = now;
+        }
     }
     
     // Power state management
@@ -143,6 +153,8 @@ void Power::update() {
             break;
             
         case PowerState::SLEEPING:
+            // In sleep mode, minimal processing - just check for wake conditions
+            // Battery reading and logging already use longer intervals above
             break;
     }
 }
@@ -167,7 +179,7 @@ void Power::wake() {
 void Power::sleep() {
     if (state != PowerState::SLEEPING) {
         state = PowerState::SLEEPING;
-        Serial.println("{\"status\":\"info\",\"msg\":\"Entering SLEEP mode\"}");
+        Serial.println("{\"status\":\"info\",\"msg\":\"Entering SLEEP mode - power saving active\"}");
         if (onSleepCallback) onSleepCallback();
     }
 }

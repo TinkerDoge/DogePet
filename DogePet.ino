@@ -50,6 +50,24 @@ void setup() {
   Animation::init();
   Events::init();
   
+  // Set up power state callbacks
+  Power::onSleepCallback = []() {
+    Face::showSleepFace();  // Turn display completely off
+    Haptics::stop();  // Stop all haptics
+    Haptics::stopPurr();  // Ensure purr is stopped
+    LED::off();  // Turn off status LED
+  };
+  
+  Power::onWakeCallback = []() {
+    Face::showActiveFace();  // Return to normal eyes
+    // LED will be controlled by other modules
+  };
+  
+  Power::onDimCallback = []() {
+    Face::showDimFace();  // Show closed eyes with animated zZZ
+    LED::setBrightness(DIM_BRIGHTNESS);  // Dim LED
+  };
+  
   // Serial command handler
   // setupSerialCmd(Face::getEyes());
 }
@@ -172,6 +190,33 @@ void loop() {
     return;  // Don't run normal loop until boot is done
   }
   
+  // Check if sleeping - skip most operations to save power
+  if (Power::isSleeping()) {
+    // Minimal operations when sleeping
+    Power::update();  // Still update power (with reduced frequency)
+    
+    // Check for wake conditions (touch, motion, etc.)
+    Touch::update();
+    if (Touch::getHeadEvent() != TouchEvent::NONE || Touch::isHeadPressed()) {
+      Power::onActivity();  // Wake on touch
+    }
+    
+    // Check for motion wake (minimal polling - every 500ms)
+    static uint32_t lastMotionCheckMs = 0;
+    if (millis() - lastMotionCheckMs >= 500) {
+      Motion::Event motionEvent = Motion::update();
+      if (motionEvent != Motion::Event::None && motionEvent != Motion::Event::Still) {
+        Power::onMotion();  // Wake on motion
+      }
+      lastMotionCheckMs = millis();
+    }
+    
+    // Small delay to reduce CPU usage when sleeping
+    delay(SLEEP_LOOP_DELAY_MS);
+    return;  // Skip all other updates (face animations, haptics, etc.)
+  }
+  
+  // Normal operation (ACTIVE or DIM mode)
   // Serial Command Handling
   processSerialCmd();
   
