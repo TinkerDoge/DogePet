@@ -24,6 +24,12 @@ public:
     static void surpriseBeep();
     static void yawn();
     
+    // Touch interaction sounds
+    static void tapSound();      // Gentle tap/beep for head tap
+    static void happySound();     // Content/happy sound for petting start
+    static void contentSound();   // Satisfied sound for petting end
+    static void satisfiedSound(); // Gentle satisfied sound for chin scratch end
+    
     // Volume control
     static void setVolume(uint8_t vol);  // 0-100
     static uint8_t getVolume();

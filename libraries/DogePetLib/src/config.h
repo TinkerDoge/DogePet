@@ -69,7 +69,7 @@ static constexpr uint8_t DEFAULT_IDLE_VARIATION  = 2;
 // AUDIO SETTINGS
 // =============================================================================
 static constexpr uint32_t AUDIO_SAMPLE_RATE = 22050;
-static constexpr uint8_t  DEFAULT_AUDIO_VOLUME      = 50;  // 0-100
+static constexpr uint8_t  DEFAULT_AUDIO_VOLUME      = 5;  // 0-100
 
 // Microphone
 static constexpr uint32_t MIC_SAMPLE_RATE = 22050;

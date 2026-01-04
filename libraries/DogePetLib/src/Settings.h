@@ -20,6 +20,8 @@ struct FaceSettings {
     uint8_t blinkInterval;
     uint8_t idleInterval;
     uint8_t contrast;
+    bool    curious;       // Show curious expression
+    bool    sweat;         // Show sweat drop
 };
 
 struct AudioSettings {

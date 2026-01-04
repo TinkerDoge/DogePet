@@ -46,6 +46,11 @@ void Face::applySettings() {
     eyes.setAutoblinker(Settings::face.autoBlink, Settings::face.blinkInterval, BLINK_VARIATION);
     eyes.setIdleMode(Settings::face.idleMode, Settings::face.idleInterval, IDLE_VARIATION);
     display.setContrast(Settings::face.contrast);
+    
+    // Apply mood flags
+    eyes.curious = Settings::face.curious;
+    eyes.sweat = Settings::face.sweat;
+    
     Serial.println("{\"status\":\"info\",\"msg\":\"Face settings applied\"}");
 }
 
@@ -177,9 +182,9 @@ void Face::drawSleepFace() {
 void Face::testExpression(const char* name) {
     if (strcmp(name, "curious") == 0) {
         showActiveFace();
-        // Trigger curious state in RoboEyes
-        eyes.setCuriosity(true);
-        // Reset after some time? For now, just set it.
+        Settings::face.curious = true;
+        Settings::face.sweat = false;
+        applySettings();
     } else if (strcmp(name, "confused") == 0) {
         showActiveFace();
         eyes.anim_confused();
@@ -190,24 +195,28 @@ void Face::testExpression(const char* name) {
         showSleepFace();
     } else if (strcmp(name, "happy") == 0) {
         showActiveFace();
+        Settings::face.curious = false;
+        Settings::face.sweat = false;
         eyes.setMood(HAPPY);
+        applySettings();
     } else if (strcmp(name, "toast") == 0) {
         setMode(DisplayMode::Toast);
         display.clearDisplay();
         display.setCursor(10, 25);
         display.println("Hello World!");
         display.display();
-        // Note: No auto-timeout logic here yet, blocks eyes
     } else if (strcmp(name, "off") == 0) {
         setMode(DisplayMode::Off);
         display.clearDisplay();
         display.display();
     } else {
-        // Default reset
+        // Default reset - normal active face
         showActiveFace();
-        eyes.setCuriosity(false);
-        eyes.setMood(DEFAULT);
+        Settings::face.curious = false;
+        Settings::face.sweat = false;
+        applySettings();
     }
+    Serial.println("{\"status\":\"ok\",\"msg\":\"Expression applied\"}");
 }
 
 void Face::showTestPattern() {

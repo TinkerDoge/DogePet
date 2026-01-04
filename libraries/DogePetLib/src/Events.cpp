@@ -40,6 +40,7 @@ void Events::update() {
         case TouchEvent::TAP:
             eyes->blink();
             Haptics::click();
+            Audio::tapSound();
             Power::onActivity();
             Serial.println("{\"status\":\"event\",\"type\":\"tap\",\"sensor\":\"head\"}");
             break;
@@ -49,6 +50,7 @@ void Events::update() {
             eyes->happy = true;
             eyes->tired = false;
             Haptics::startPurr();
+            Audio::happySound();
             Power::onActivity();
             Serial.println("{\"status\":\"event\",\"type\":\"petting_start\"}");
             break;
@@ -63,6 +65,7 @@ void Events::update() {
             isPetting = false;
             eyes->happy = false;
             Haptics::stopPurr();
+            Audio::contentSound();
             Serial.println("{\"status\":\"event\",\"type\":\"petting_end\"}");
             break;
             
@@ -137,6 +140,7 @@ void Events::update() {
                 eyes->confused = false;
                 if (!isPetting) {
                     Haptics::stopPurr();
+                    Audio::satisfiedSound();
                 }
                 Serial.println("{\"status\":\"event\",\"type\":\"chin_scratch_end\"}");
             }

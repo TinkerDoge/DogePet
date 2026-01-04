@@ -1,5 +1,9 @@
 // Settings.cpp - Runtime and NVS persistent settings
 #include "Settings.h"
+#include "Face.h"
+#include "Audio.h"
+#include "Haptics.h"
+#include "LED.h"
 #include <ArduinoJson.h>
 
 // =============================================================================
@@ -66,6 +70,8 @@ void Settings::loadDefaults() {
     face.blinkInterval = DEFAULT_BLINK_INTERVAL;
     face.idleInterval  = DEFAULT_IDLE_INTERVAL;
     face.contrast      = DEFAULT_OLED_CONTRAST;
+    face.curious       = false;
+    face.sweat         = false;
     
     // Audio (Dynamic)
     audio.volume        = DEFAULT_AUDIO_VOLUME;
@@ -115,52 +121,54 @@ void Settings::loadFromNVS() {
     strncpy(botName, name.c_str(), sizeof(botName) - 1);
     
     // Face (Dynamic)
-    face.width         = prefs.getUChar("f_width", face.width);
-    face.height        = prefs.getUChar("f_height", face.height);
-    face.radius        = prefs.getUChar("f_radius", face.radius);
-    face.spacing       = prefs.getChar("f_spacing", face.spacing);
-    face.autoBlink     = prefs.getBool("f_blink", face.autoBlink);
-    face.idleMode      = prefs.getBool("f_idle", face.idleMode);
-    face.blinkInterval = prefs.getUChar("f_blink_int", face.blinkInterval);
-    face.idleInterval  = prefs.getUChar("f_idle_int", face.idleInterval);
-    face.contrast      = prefs.getUChar("f_contrast", face.contrast);
+    face.width         = prefs.getUChar("f_width", DEFAULT_EYE_WIDTH);
+    face.height        = prefs.getUChar("f_height", DEFAULT_EYE_HEIGHT);
+    face.radius        = prefs.getUChar("f_radius", DEFAULT_EYE_BORDER_RADIUS);
+    face.spacing       = prefs.getChar("f_spacing", DEFAULT_EYE_SPACING);
+    face.autoBlink     = prefs.getBool("f_blink", DEFAULT_EYE_AUTO_BLINK);
+    face.idleMode      = prefs.getBool("f_idle", DEFAULT_EYE_IDLE_MODE);
+    face.blinkInterval = prefs.getUChar("f_blink_int", DEFAULT_BLINK_INTERVAL);
+    face.idleInterval  = prefs.getUChar("f_idle_int", DEFAULT_IDLE_INTERVAL);
+    face.contrast      = prefs.getUChar("f_contrast", DEFAULT_OLED_CONTRAST);
+    face.curious       = prefs.getBool("f_curious", false);
+    face.sweat         = prefs.getBool("f_sweat", false);
     
     // Audio (Dynamic)
-    audio.volume        = prefs.getUChar("a_volume", audio.volume);
-    audio.micLogEnabled = prefs.getBool("a_miclog", audio.micLogEnabled);
+    audio.volume        = prefs.getUChar("a_volume", DEFAULT_AUDIO_VOLUME);
+    audio.micLogEnabled = prefs.getBool("a_miclog", true);
     
     // Haptic (Dynamic)
-    haptic.intensity = prefs.getUChar("h_intensity", haptic.intensity);
+    haptic.intensity = prefs.getUChar("h_intensity", DEFAULT_HAPTIC_INTENSITY);
     
     // LED (Dynamic)
-    led.brightness = prefs.getUChar("l_bright", led.brightness);
-    led.r = prefs.getUChar("l_r", led.r);
-    led.g = prefs.getUChar("l_g", led.g);
-    led.b = prefs.getUChar("l_b", led.b);
+    led.brightness = prefs.getUChar("l_bright", LED_BRIGHTNESS);
+    led.r = prefs.getUChar("l_r", LED_COLOR_R);
+    led.g = prefs.getUChar("l_g", LED_COLOR_G);
+    led.b = prefs.getUChar("l_b", LED_COLOR_B);
     
     // Motion (Persistent)
-    motion.tiltDeg        = prefs.getFloat("m_tilt", motion.tiltDeg);
-    motion.shakeAngryDps  = prefs.getFloat("m_shake", motion.shakeAngryDps);
-    motion.shakeFuriousDps = prefs.getFloat("m_furious", motion.shakeFuriousDps);
-    motion.tapSpikeDps    = prefs.getFloat("m_tap", motion.tapSpikeDps);
+    motion.tiltDeg        = prefs.getFloat("m_tilt", DEFAULT_TILT_THRESHOLD_DEG);
+    motion.shakeAngryDps  = prefs.getFloat("m_shake", DEFAULT_SHAKE_ANGRY_DPS);
+    motion.shakeFuriousDps = prefs.getFloat("m_furious", DEFAULT_SHAKE_FURIOUS_DPS);
+    motion.tapSpikeDps    = prefs.getFloat("m_tap", DEFAULT_TAP_SPIKE_DPS);
     
     // Power (Persistent)
-    power.idleTimeoutMs  = prefs.getULong("p_idle", power.idleTimeoutMs);
-    power.sleepTimeoutMs = prefs.getULong("p_sleep", power.sleepTimeoutMs);
+    power.idleTimeoutMs  = prefs.getULong("p_idle", DEFAULT_IDLE_TIMEOUT_MS);
+    power.sleepTimeoutMs = prefs.getULong("p_sleep", DEFAULT_SLEEP_TIMEOUT_MS);
     
-    // Pins (Persistent) - only load if explicitly set
-    pins.i2cSda     = prefs.getUChar("pin_sda", pins.i2cSda);
-    pins.i2cScl     = prefs.getUChar("pin_scl", pins.i2cScl);
-    pins.funcBtn    = prefs.getUChar("pin_btn", pins.funcBtn);
-    pins.touchChin  = prefs.getUChar("pin_chin", pins.touchChin);
-    pins.i2sBclk    = prefs.getUChar("pin_bclk", pins.i2sBclk);
-    pins.i2sLrc     = prefs.getUChar("pin_lrc", pins.i2sLrc);
-    pins.i2sDo      = prefs.getUChar("pin_do", pins.i2sDo);
-    pins.i2sDi      = prefs.getUChar("pin_di", pins.i2sDi);
-    pins.ledPin     = prefs.getUChar("pin_led", pins.ledPin);
-    pins.vbatPin    = prefs.getUChar("pin_vbat", pins.vbatPin);
-    pins.vibroLeft  = prefs.getUChar("pin_vl", pins.vibroLeft);
-    pins.vibroRight = prefs.getUChar("pin_vr", pins.vibroRight);
+    // Pins (Persistent) - use config.h constants as defaults
+    pins.i2cSda     = prefs.getUChar("pin_sda", I2C_SDA);
+    pins.i2cScl     = prefs.getUChar("pin_scl", I2C_SCL);
+    pins.funcBtn    = prefs.getUChar("pin_btn", FUNC_BTN);
+    pins.touchChin  = prefs.getUChar("pin_chin", TOUCH_CHIN);
+    pins.i2sBclk    = prefs.getUChar("pin_bclk", I2S_BCLK);
+    pins.i2sLrc     = prefs.getUChar("pin_lrc", I2S_LRC);
+    pins.i2sDo      = prefs.getUChar("pin_do", I2S_DO);
+    pins.i2sDi      = prefs.getUChar("pin_di", I2S_DI);
+    pins.ledPin     = prefs.getUChar("pin_led", LED_PIN);
+    pins.vbatPin    = prefs.getUChar("pin_vbat", VBAT_PIN);
+    pins.vibroLeft  = prefs.getUChar("pin_vl", VIBRO_LEFT);
+    pins.vibroRight = prefs.getUChar("pin_vr", VIBRO_RIGHT);
 }
 
 void Settings::saveToNVS() {
@@ -177,6 +185,8 @@ void Settings::saveToNVS() {
     prefs.putUChar("f_blink_int", face.blinkInterval);
     prefs.putUChar("f_idle_int", face.idleInterval);
     prefs.putUChar("f_contrast", face.contrast);
+    prefs.putBool("f_curious", face.curious);
+    prefs.putBool("f_sweat", face.sweat);
     
     // Audio (Dynamic)
     prefs.putUChar("a_volume", audio.volume);
@@ -222,20 +232,28 @@ void Settings::saveToNVS() {
 
 void Settings::applyFaceSettings() {
     // Called to push current face settings to the Face module
-    // Implementation in Face.cpp will read Settings::face
-    Serial.println("{\"status\":\"info\",\"msg\":\"Face settings applied\"}");
+    // Face::applySettings() will read Settings::face
+    Face::applySettings();
+    Serial.println("{\"status\":\"info\",\"msg\":\"Face settings applied\",\"dynamic\":true}");
 }
 
 void Settings::applyAudioSettings() {
-    Serial.println("{\"status\":\"info\",\"msg\":\"Audio settings applied\"}");
+    // Apply audio volume and mic logging
+    Audio::setVolume(audio.volume);
+    Audio::setMicLogEnabled(audio.micLogEnabled);
+    Serial.println("{\"status\":\"info\",\"msg\":\"Audio settings applied\",\"dynamic\":true}");
 }
 
 void Settings::applyHapticSettings() {
-    Serial.println("{\"status\":\"info\",\"msg\":\"Haptic settings applied\"}");
+    // Haptic intensity is applied per-effect, just log
+    Serial.println("{\"status\":\"info\",\"msg\":\"Haptic settings applied\",\"dynamic\":true}");
 }
 
 void Settings::applyLEDSettings() {
-    Serial.println("{\"status\":\"info\",\"msg\":\"LED settings applied\"}");
+    // Apply LED color and brightness
+    LED::setColor(led.r, led.g, led.b);
+    LED::setBrightness(led.brightness);
+    Serial.println("{\"status\":\"info\",\"msg\":\"LED settings applied\",\"dynamic\":true}");
 }
 
 // =============================================================================
@@ -261,6 +279,8 @@ String Settings::toJson() {
     f["blink_interval"] = face.blinkInterval;
     f["idle_interval"] = face.idleInterval;
     f["contrast"] = face.contrast;
+    f["curious"] = face.curious;
+    f["sweat"] = face.sweat;
     
     JsonObject a = doc["audio"].to<JsonObject>();
     a["volume"] = audio.volume;
@@ -406,6 +426,8 @@ bool Settings::fromJson(const String& json) {
         if (f.containsKey("blink_interval")) face.blinkInterval = f["blink_interval"];
         if (f.containsKey("idle_interval")) face.idleInterval = f["idle_interval"];
         if (f.containsKey("contrast")) face.contrast = f["contrast"];
+        if (f.containsKey("curious")) face.curious = f["curious"];
+        if (f.containsKey("sweat")) face.sweat = f["sweat"];
         dynamicChanged = true;
         applyFaceSettings();
     }

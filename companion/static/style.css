@@ -17,13 +17,16 @@
     box-sizing: border-box;
 }
 
-/* Halftone Dot Pattern - applied as background to avoid overlay issues */
 body {
     margin: 0;
     padding: 20px;
     background-color: var(--bg-color);
-    background-image: radial-gradient(rgba(0, 0, 0, 0.4) 1px, transparent 1px);
-    background-size: 4px 4px;
+    /* Halftone pattern + Logo Wallpaper */
+    background-image: radial-gradient(rgba(0, 0, 0, 0.4) 1px, transparent 1px), url('logo.png');
+    background-size: 4px 4px, cover;
+    background-position: 0 0, center;
+    background-repeat: repeat, no-repeat;
+    
     color: var(--text-color);
     font-family: 'Space Mono', monospace;
     height: 100vh;
@@ -38,7 +41,8 @@ body {
     width: 100%;
     max-width: 95%; /* Responsive width */
     height: 90vh;
-    background: var(--window-bg);
+    /* Slightly transparent to show logo hint */
+    background: rgba(26, 27, 30, 0.95);
     /* Subtle pattern for window too */
     background-image: radial-gradient(rgba(0, 0, 0, 0.2) 1px, transparent 1px);
     background-size: 4px 4px;
@@ -93,6 +97,40 @@ body {
     display: flex;
     gap: 15px;
     align-items: center;
+}
+
+/* Tab Navigation */
+.tab-nav {
+    display: flex;
+    gap: 5px;
+    margin-bottom: 20px;
+    border-bottom: 3px solid var(--border-color);
+    padding-bottom: 5px;
+}
+.tab-btn {
+    background: var(--input-bg); /* Assuming --bg-dark is similar to --input-bg or needs to be defined */
+    border: 2px solid var(--border-color);
+    padding: 8px 15px;
+    font-family: 'VT323', monospace;
+    font-size: 1.1rem;
+    color: var(--text-color); /* Assuming --text-muted is similar to --text-color or needs to be defined */
+    cursor: pointer;
+    transition: all 0.2s;
+    border-radius: 6px 6px 0 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.tab-icon {
+    width: 24px;
+    height: 24px;
+    image-rendering: pixelated;
+    display: inline-block;
+}
+.tab-btn:hover {
+    background: #2f3036; /* Assuming --bg-light is similar to this or needs to be defined */
+    color: var(--accent-amber); /* Changed to accent-amber for consistency with nav-btn:hover */
+    border-color: var(--accent-amber); /* Added for consistency with nav-btn:hover */
 }
 
 .nav-btn {
@@ -300,7 +338,7 @@ span[id^="val_"] {
     border-radius: 8px;
     padding: 10px;
     max-height: 55vh;
-    overflow-y: auto;
+    overflow-y: scroll;
     overflow-x: auto;
     font-family: 'VT323', monospace;
     color: #00ff00;
@@ -336,6 +374,23 @@ span[id^="val_"] {
 .action-btn:active {
     transform: translateY(1px);
 }
+
+/* Pixel Icons */
+.pixel-icon {
+    display: inline-block;
+    width: 32px;
+    height: 32px;
+    background-image: url('sprites.png');
+    background-size: 96px 32px; /* Scaled down from 192x64 */
+    background-repeat: no-repeat;
+    vertical-align: middle;
+    margin-right: 10px;
+    image-rendering: pixelated;
+}
+
+.icon-idle  { background-position: 0 0; }
+.icon-happy { background-position: -32px 0; }
+.icon-sleep { background-position: -64px 0; }
 
 .btn-red { 
     border-color: var(--accent-red); 

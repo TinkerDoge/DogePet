@@ -167,6 +167,32 @@ void Audio::yawn() {
     playTone(300, 200);
 }
 
+void Audio::tapSound() {
+    // Gentle tap sound - short, pleasant beep
+    playTone(600, 30); delay(10);
+    playTone(800, 40);
+}
+
+void Audio::happySound() {
+    // Happy/content sound when petting starts - ascending pleasant tones
+    playTone(500, 50); delay(20);
+    playTone(600, 50); delay(20);
+    playTone(700, 60);
+}
+
+void Audio::contentSound() {
+    // Satisfied sound when petting ends - gentle descending sigh
+    playTone(600, 60); delay(30);
+    playTone(500, 80); delay(30);
+    playTone(400, 100);
+}
+
+void Audio::satisfiedSound() {
+    // Gentle satisfied sound for chin scratch end - soft content purr
+    playTone(450, 50); delay(25);
+    playTone(400, 70);
+}
+
 void Audio::stop() {
     // Silence
 }

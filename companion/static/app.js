@@ -142,48 +142,53 @@ async function fetchConfig() {
     setVal('face.spacing', cfg.face?.spacing);
     setCheck('face.auto_blink', cfg.face?.auto_blink);
     setCheck('face.idle_mode', cfg.face?.idle_mode);
-    setVal('face.blink_int', cfg.face?.blink_interval); // Note: firmware key is blink_interval
-    setVal('face.idle_int', cfg.face?.idle_interval);   // Note: firmware key is idle_interval
-    setVal('screen.con', cfg.face?.contrast);           // Contrast is now in face struct on FW
+    setVal('face.blink_interval', cfg.face?.blink_interval);
+    setVal('face.idle_interval', cfg.face?.idle_interval);
+    setVal('face.contrast', cfg.face?.contrast);
+    setCheck('face.curious', cfg.face?.curious);
+    setCheck('face.sweat', cfg.face?.sweat);
     
     // MOTION (Persistent)
-    setVal('motion.tilt', cfg.motion?.tilt_deg);
-    setVal('motion.shake', cfg.motion?.shake_angry_dps);
-    setVal('motion.furious', cfg.motion?.shake_furious_dps);
-    setVal('motion.tap', cfg.motion?.tap_spike_dps);
+    setVal('motion.tilt_deg', cfg.motion?.tilt_deg);
+    setVal('motion.shake_angry_dps', cfg.motion?.shake_angry_dps);
+    setVal('motion.shake_furious_dps', cfg.motion?.shake_furious_dps);
+    setVal('motion.tap_spike_dps', cfg.motion?.tap_spike_dps);
     
     // PINS (Persistent, optional)
     if (cfg.pins) {
-        setVal('pins.sda', cfg.pins.i2c_sda);
-        setVal('pins.scl', cfg.pins.i2c_scl);
-        setVal('pins.btn', cfg.pins.func_btn);
-        setVal('pins.chin', cfg.pins.touch_chin);
-        setVal('pins.bclk', cfg.pins.i2s_bclk);
-        setVal('pins.lrc', cfg.pins.i2s_lrc);
-        setVal('pins.do', cfg.pins.i2s_do);
-        setVal('pins.di', cfg.pins.i2s_di);
+        setVal('pins.i2c_sda', cfg.pins.i2c_sda);
+        setVal('pins.i2c_scl', cfg.pins.i2c_scl);
+        setVal('pins.func_btn', cfg.pins.func_btn);
+        setVal('pins.touch_chin', cfg.pins.touch_chin);
+        setVal('pins.i2s_bclk', cfg.pins.i2s_bclk);
+        setVal('pins.i2s_lrc', cfg.pins.i2s_lrc);
+        setVal('pins.i2s_do', cfg.pins.i2s_do);
+        setVal('pins.i2s_di', cfg.pins.i2s_di);
         setVal('pins.led', cfg.pins.led);
         setVal('pins.vbat', cfg.pins.vbat);
-        setVal('pins.vl', cfg.pins.vibro_left);
-        setVal('pins.vr', cfg.pins.vibro_right);
+        setVal('pins.vibro_left', cfg.pins.vibro_left);
+        setVal('pins.vibro_right', cfg.pins.vibro_right);
     }
     
     // AUDIO (Dynamic)
-    setVal('audio.vol', cfg.audio?.volume);
-    setCheck('audio.mic_log', cfg.audio?.mic_log_enabled); // Check key name match
+    setVal('audio.volume', cfg.audio?.volume);
+    setCheck('audio.mic_log', cfg.audio?.mic_log_enabled);
     
     // HAPTIC (Dynamic)
-    setVal('haptic.int', cfg.haptic?.intensity);
+    setVal('haptic.intensity', cfg.haptic?.intensity);
     
     // LED (Dynamic)
-    setVal('led.bri', cfg.led?.brightness);
+    setVal('led.brightness', cfg.led?.brightness);
     setVal('led.r', cfg.led?.r);
     setVal('led.g', cfg.led?.g);
     setVal('led.b', cfg.led?.b);
     
     // POWER (Persistent)
-    setVal('power.idle_ms', cfg.power?.idle_timeout_ms);
-    setVal('power.sleep_ms', cfg.power?.sleep_timeout_ms);
+    setVal('power.idle_timeout_ms', cfg.power?.idle_timeout_ms);
+    setVal('power.sleep_timeout_ms', cfg.power?.sleep_timeout_ms);
+    
+    // Trigger range displays to update their value indicators
+    document.querySelectorAll('input[type=range]').forEach(el => el.dispatchEvent(new Event('input')));
     
     // Trigger range displays
     document.querySelectorAll('input[type=range]').forEach(el => el.dispatchEvent(new Event('input')));
@@ -212,22 +217,22 @@ const sendPreview = debounce(async () => {
             spacing: getVal('face.spacing'),
             auto_blink: getCheck('face.auto_blink'),
             idle_mode: getCheck('face.idle_mode'),
-            blink_interval: getVal('face.blink_int'),
-            idle_interval: getVal('face.idle_int'),
-            contrast: getVal('screen.con')
+            blink_interval: getVal('face.blink_interval'),
+            idle_interval: getVal('face.idle_interval'),
+            contrast: getVal('face.contrast')
         },
         audio: {
-            volume: getVal('audio.vol'),
-            mic_log: getCheck('audio.mic_log') 
+            volume: getVal('audio.volume'),
+            mic_log: getCheck('audio.mic_log')
         },
         haptic: {
-            intensity: getVal('haptic.int')
+            intensity: getVal('haptic.intensity')
         },
         led: {
-            brightness: getVal('led.bri'),
+            brightness: getVal('led.brightness'),
             r: getVal('led.r'),
             g: getVal('led.g'),
-            b: getVal('led.b'),
+            b: getVal('led.b')
         }
     };
     
@@ -269,46 +274,48 @@ els.btnSave.addEventListener('click', async () => {
             spacing: getVal('face.spacing'),
             auto_blink: getCheck('face.auto_blink'),
             idle_mode: getCheck('face.idle_mode'),
-            blink_interval: getVal('face.blink_int'),
-            idle_interval: getVal('face.idle_int'),
-            contrast: getVal('screen.con')
+            blink_interval: getVal('face.blink_interval'),
+            idle_interval: getVal('face.idle_interval'),
+            contrast: getVal('face.contrast'),
+            curious: getCheck('face.curious'),
+            sweat: getCheck('face.sweat')
         },
         motion: {
-            tilt_deg: getVal('motion.tilt'),
-            shake_angry_dps: getVal('motion.shake'),
-            shake_furious_dps: getVal('motion.furious'),
-            tap_spike_dps: getVal('motion.tap'),
+            tilt_deg: getVal('motion.tilt_deg'),
+            shake_angry_dps: getVal('motion.shake_angry_dps'),
+            shake_furious_dps: getVal('motion.shake_furious_dps'),
+            tap_spike_dps: getVal('motion.tap_spike_dps')
         },
         pins: {
-            i2c_sda: getVal('pins.sda'),
-            i2c_scl: getVal('pins.scl'),
-            func_btn: getVal('pins.btn'),
-            touch_chin: getVal('pins.chin'),
-            i2s_bclk: getVal('pins.bclk'),
-            i2s_lrc: getVal('pins.lrc'),
-            i2s_do: getVal('pins.do'),
-            i2s_di: getVal('pins.di'),
+            i2c_sda: getVal('pins.i2c_sda'),
+            i2c_scl: getVal('pins.i2c_scl'),
+            func_btn: getVal('pins.func_btn'),
+            touch_chin: getVal('pins.touch_chin'),
+            i2s_bclk: getVal('pins.i2s_bclk'),
+            i2s_lrc: getVal('pins.i2s_lrc'),
+            i2s_do: getVal('pins.i2s_do'),
+            i2s_di: getVal('pins.i2s_di'),
             led: getVal('pins.led'),
             vbat: getVal('pins.vbat'),
-            vibro_left: getVal('pins.vl'),
-            vibro_right: getVal('pins.vr'),
+            vibro_left: getVal('pins.vibro_left'),
+            vibro_right: getVal('pins.vibro_right')
         },
         power: {
-            idle_timeout_ms: getVal('power.idle_ms'),
-            sleep_timeout_ms: getVal('power.sleep_ms'),
+            idle_timeout_ms: getVal('power.idle_timeout_ms'),
+            sleep_timeout_ms: getVal('power.sleep_timeout_ms')
         },
         audio: {
-            volume: getVal('audio.vol'),
+            volume: getVal('audio.volume'),
             mic_log: getCheck('audio.mic_log')
         },
         haptic: {
-            intensity: getVal('haptic.int')
+            intensity: getVal('haptic.intensity')
         },
         led: {
-            brightness: getVal('led.bri'),
+            brightness: getVal('led.brightness'),
             r: getVal('led.r'),
             g: getVal('led.g'),
-            b: getVal('led.b'),
+            b: getVal('led.b')
         }
     };
     

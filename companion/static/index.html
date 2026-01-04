@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DogePet Config v4.0</title>
+    <link rel="icon" type="image/png" href="icon.png">
     <link rel="stylesheet" href="style.css">
     <style>
         /* Tab Navigation */
@@ -90,12 +91,12 @@
             <div class="main-panel">
                 <!-- Tab Navigation -->
                 <div class="tab-nav">
-                    <button class="tab-btn active" onclick="switchTab('appearance')">⚡ APPEARANCE</button>
-                    <button class="tab-btn" onclick="switchTab('testing')">🧪 TESTING</button>
-                    <button class="tab-btn" onclick="switchTab('audio')">🔊 AUDIO</button>
-                    <button class="tab-btn" onclick="switchTab('motion')">🔄 MOTION</button>
-                    <button class="tab-btn" onclick="switchTab('power')">🔋 POWER</button>
-                    <button class="tab-btn" onclick="switchTab('hardware')">⚙️ HARDWARE</button>
+                    <button class="tab-btn active" onclick="switchTab('appearance')"><img src="icon_appearance.png" class="tab-icon"> APPEARANCE</button>
+                    <button class="tab-btn" onclick="switchTab('testing')"><img src="icon_testing.png" class="tab-icon"> TESTING</button>
+                    <button class="tab-btn" onclick="switchTab('audio')"><img src="icon_audio.png" class="tab-icon"> AUDIO</button>
+                    <button class="tab-btn" onclick="switchTab('motion')"><img src="icon_motion.png" class="tab-icon"> MOTION</button>
+                    <button class="tab-btn" onclick="switchTab('power')"><img src="icon_power.png" class="tab-icon"> POWER</button>
+                    <button class="tab-btn" onclick="switchTab('hardware')"><img src="icon_hardware.png" class="tab-icon"> HARDWARE</button>
                 </div>
 
                 <!-- TAB: APPEARANCE (Dynamic) -->
@@ -163,6 +164,24 @@
                         </div>
                     </div>
 
+                    <!-- EYE MOODS -->
+                    <div class="section-card">
+                        <div class="section-title">EYE_MOODS</div>
+                        <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 12px;">
+                            Enable persistent eye expressions (applies instantly)
+                        </p>
+                        <div class="form-row">
+                            <label class="checkbox-wrapper full-width">
+                                <input type="checkbox" name="face.curious" onchange="sendPreview()">
+                                <span>🤔 CURIOUS</span>
+                            </label>
+                            <label class="checkbox-wrapper full-width">
+                                <input type="checkbox" name="face.sweat" onchange="sendPreview()">
+                                <span>💦 SWEAT_DROP</span>
+                            </label>
+                        </div>
+                    </div>
+
                     <!-- DISPLAY -->
                     <div class="section-card">
                         <div class="section-title">DISPLAY</div>
@@ -194,15 +213,15 @@
                     <div class="section-card">
                         <div class="section-title">EXPRESSION_TESTS</div>
                         <div class="form-row">
-                            <button class="action-btn" onclick="testFace('happy')">😊 HAPPY</button>
-                            <button class="action-btn" onclick="testFace('curious')">🤔 CURIOUS</button>
+                            <button class="action-btn" onclick="testFace('happy')"><span class="pixel-icon icon-happy"></span>HAPPY</button>
+                            <button class="action-btn" onclick="testFace('curious')"><span class="pixel-icon icon-idle"></span>CURIOUS</button>
                         </div>
                         <div class="form-row">
-                            <button class="action-btn" onclick="testFace('confused')">😕 CONFUSED</button>
-                            <button class="action-btn" onclick="testFace('laugh')">😆 LAUGH</button>
+                            <button class="action-btn" onclick="testFace('confused')"><span class="pixel-icon icon-idle"></span>CONFUSED</button>
+                            <button class="action-btn" onclick="testFace('laugh')"><span class="pixel-icon icon-happy"></span>LAUGH</button>
                         </div>
                         <div class="form-row">
-                            <button class="action-btn" onclick="testFace('sleep')">😴 SLEEP</button>
+                            <button class="action-btn" onclick="testFace('sleep')"><span class="pixel-icon icon-sleep"></span>SLEEP</button>
                             <button class="action-btn" onclick="testFace('toast')">📜 TOAST</button>
                         </div>
                         <div class="form-row">
@@ -365,8 +384,10 @@
 
             <!-- Sidebar -->
             <div class="sidebar">
-                <div class="monitor-screen" id="logOutput">
-                    > READY_FOR_SYNC...
+                <div class="monitor-screen" id="logOutput" style="display:flex; flex-direction:column; justify-content:space-between;">
+                    <div style="flex:1; overflow-y:auto; word-break:break-all;">
+                        > READY_FOR_SYNC...
+                    </div>
                 </div>
                 
                 <button id="btnSave" class="action-btn">
