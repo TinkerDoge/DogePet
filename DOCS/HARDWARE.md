@@ -1,4 +1,4 @@
-# DogePet Hardware Setup
+ # DogePet Hardware Setup
 
 ## Overview
 
@@ -25,16 +25,22 @@ DogePet is an ESP32-S3 based companion robot with animated eyes, audio feedback,
 | GPIO | Function | Direction | Notes |
 |------|----------|-----------|-------|
 | 5 | I2C_SCL | Output | 400kHz Fast Mode |
-| 6 | I2C_SDA | Bidirectional | Shared bus |
-| 11 | I2S_DI | Input | Microphone data (dual-channel HW) | INMP441
+| 6 | I2C_SDA | Bidirectional | Shared bus (OLED + MPU6050) |
+| 2 | MPU_INT | Input | MPU6050 interrupt (optional) |
+| 11 | I2S_DI | Input | Microphone data (INMP441) |
 | 15 | VBAT_PIN | Input | Battery voltage ADC |
 | 16 | I2S_LRC | Output | Audio Word Select (LRCLK) |
 | 17 | I2S_BCLK | Output | Audio Bit Clock |
-| 33 | I2S_DO | Output | Audio Data Out | MAX98375A
-| 41 | FUNC_BTN | Input | Main button (Active HIGH) | TPP223
+| 33 | I2S_DO | Output | Audio Data Out (MAX98357A) |
+| 41 | FUNC_BTN | Input | Head touch sensor (Active HIGH, TPP223) |
+| 1 | TOUCH_CHIN | Input | Chin touch sensor (optional, TPP223) |
 | 48 | LED_PIN | Output | WS2812 Status LED |
-| 3 | VIBRO_RIGHT | Output | Right vibration motor (PWM) |
+| 3 | VIBRO_RIGHT | Output | Right vibration motor (PWM) ⚠️ Strapping pin |
 | 4 | VIBRO_LEFT | Output | Left vibration motor (PWM) |
+
+**Notes:**
+- GPIO 3 is a strapping pin - handle during boot sequence
+- Touch sensors (TPP223) are Active HIGH - use `INPUT_PULLDOWN`
 
 ---
 
@@ -70,7 +76,14 @@ SDA    →    GPIO 6
 | **Interface** | I2C (shared bus) |
 | **Address** | 0x68 |
 | **Device ID** | 0x34 (MPU6050) or 0x38/0x39 (MPU6500) |
-| **Features** | Accelerometer + Gyroscope |
+| **Features** | Accelerometer ±2g, Gyroscope ±250°/s |
+| **Polling Rate** | ~25Hz (software polling) |
+
+**Firmware Approach:**
+- Uses simple I2C register reads (no DMP library)
+- Noise-gated low-pass filtering for stability
+- Event detection: Tilt, Shake, Tap, Still
+- Calibration at boot (device must be stationary)
 
 **Wiring:**
 ```
@@ -81,6 +94,7 @@ GND    →    GND
 SCL    →    GPIO 5
 SDA    →    GPIO 6
 AD0    →    GND (address 0x68)
+INT    →    GPIO 2 (optional)
 ```
 
 **Note:** Some modules are actually MPU6500 variants that report device ID 0x38 instead of 0x34. The firmware handles both.

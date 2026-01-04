@@ -3,13 +3,14 @@
 #include <driver/i2s.h>
 #include <math.h>
 
+#include "ConfigManager.h"
 // I2S Configuration
 #define I2S_PORT I2S_NUM_0
 #define I2S_SAMPLE_RATE 22050
 #define I2S_BUFFER_LEN 64
 
 bool Audio::isI2SReady = false;
-uint8_t Audio::volume = AUDIO_VOLUME;
+uint8_t Audio::volume = DEFAULT_AUDIO_VOLUME;
 
 // Mic change detection state
 bool Audio::micLogEnabled = true;
@@ -18,7 +19,10 @@ uint32_t Audio::lastMicLogMs = 0;
 
 void Audio::init() {
     initI2S();
-    Serial.println("{\"status\":\"info\",\"msg\":\"Audio Init: I2S & Amp\"}");
+    // Set initial volume
+    volume = settings.audio.vol;
+    
+    Serial.println("{\"status\":\"info\",\"msg\":\"Audio: I2S OK\"}");
 }
 
 void Audio::initI2S() {

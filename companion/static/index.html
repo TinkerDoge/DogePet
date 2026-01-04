@@ -3,369 +3,225 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DogePet OS // GAME_MODE</title>
-    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;700&family=Press+Start+2P&display=swap" rel="stylesheet">
+    <title>DogePet Config v2.0</title>
     <link rel="stylesheet" href="style.css">
+    <style>
+        /* Override for single-window scrollable layout */
+        .main-panel {
+            padding: 30px;
+            scroll-behavior: smooth;
+        }
+        .section-card {
+            margin-bottom: 40px; /* More space between sections */
+        }
+    </style>
 </head>
-<body class="retro-theme">
-    <div class="scanlines"></div>
-    
-    <!-- Start Screen Overlay -->
-    <div id="startScreen">
-        <img src="logo.png" style="width: 128px; image-rendering: pixelated; margin-bottom: 20px;">
-        <h1 class="blink-text">PRESS ANY KEY TO START</h1>
+<body>
+
+    <div class="main-window">
+        <!-- Title Bar -->
+        <div class="title-bar">
+            <div class="window-controls">
+                <div class="control-dot" style="background:var(--accent-red)"></div>
+                <div class="control-dot" style="background:var(--accent-yellow)"></div>
+                <div class="control-dot" style="background:var(--accent-green)"></div>
+            </div>
+            <div class="title-text">UNIFIED_CONFIGurator.EXE</div>
+            <div style="width: 40px"></div>
+        </div>
+
+        <!-- Toolbar (Connection Only) -->
+        <div class="toolbar">
+            <div style="font-family:'VT323'; font-size:1.2rem; color:var(--text-color); margin-right:10px;">COM_PORT:</div>
+            <select id="portSelect" style="width: 150px; padding: 6px; border:3px solid var(--border-color); border-radius:6px;">
+                <option value="">Scanning...</option>
+            </select>
+            <button id="btnConnect" class="nav-btn" style="padding: 6px 15px;">CONNECT</button>
+            
+            <div class="connection-status">
+                <div id="statusInd" class="status-indicator">OFFLINE</div>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="content-area">
+            <div class="main-panel" id="mainContent">
+                
+                <!-- IDENTITY -->
+                <div class="section-card">
+                    <div class="section-title">IDENTITY</div>
+                    <div class="form-group">
+                        <label>BOT NAME</label>
+                        <input type="text" name="bot_name" id="bot_name" maxlength="31">
+                    </div>
+                </div>
+
+                <!-- DISPLAY & EYES -->
+                <div class="section-card">
+                    <div class="section-title">VISUALS_MODULE</div>
+                    <div class="form-row">
+                        <div class="full-width">
+                            <label>EYE_WIDTH (px)</label>
+                            <input type="range" name="eye.width" min="10" max="60" oninput="updateDisp(this, 'val_ew')">
+                            <span id="val_ew">28</span>
+                        </div>
+                        <div class="full-width">
+                            <label>EYE_HEIGHT (px)</label>
+                            <input type="range" name="eye.height" min="10" max="60" oninput="updateDisp(this, 'val_eh')">
+                            <span id="val_eh">40</span>
+                        </div>
+                    </div>
+                    <div class="form-row" style="margin-top:10px">
+                        <div class="full-width">
+                            <label>EYE_RADIUS (px)</label>
+                            <input type="range" name="eye.radius" min="0" max="30" oninput="updateDisp(this, 'val_er')">
+                            <span id="val_er">8</span>
+                        </div>
+                        <div class="full-width">
+                            <label>SPACING (px)</label>
+                            <input type="range" name="eye.spacing" min="0" max="50" oninput="updateDisp(this, 'val_es')">
+                            <span id="val_es">10</span>
+                        </div>
+                    </div>
+                    <div class="form-row" style="margin-top:15px">
+                        <label class="checkbox-wrapper full-width">
+                            <input type="checkbox" name="eye.auto_blink">
+                            <span>AUTO_BLINK</span>
+                        </label>
+                        <label class="checkbox-wrapper full-width">
+                            <input type="checkbox" name="eye.idle_mode">
+                            <span>IDLE_LOOKING</span>
+                        </label>
+                    </div>
+                    <div class="form-row" style="margin-top:5px">
+                        <label class="checkbox-wrapper full-width">
+                            <input type="checkbox" name="eye.cyclops">
+                            <span>CYCLOPS_MODE</span>
+                        </label>
+                        <label class="checkbox-wrapper full-width">
+                            <input type="checkbox" name="eye.sweat">
+                            <span>SWEAT_EFFECT</span>
+                        </label>
+                    </div>
+                    <div class="form-row" style="margin-top:15px">
+                        <div class="full-width">
+                            <label>BLINK_INT (s)</label>
+                            <input type="number" name="eye.blink_int">
+                        </div>
+                        <div class="full-width">
+                            <label>IDLE_INT (s)</label>
+                            <input type="number" name="eye.idle_int">
+                        </div>
+                    </div>
+                    <hr style="margin:20px 0; border:1px dashed var(--border-color); opacity:0.3;">
+                    <div class="form-row">
+                        <div class="full-width">
+                            <label>OLED_CONTRAST (0-255)</label>
+                            <input type="range" name="screen.con" min="0" max="255" oninput="updateDisp(this, 'val_con')">
+                            <span id="val_con" style="font-size:0.7rem; font-weight:bold">255</span>
+                        </div>
+                        <label class="checkbox-wrapper full-width">
+                            <input type="checkbox" name="screen.flip">
+                            <span>ROTATE_180</span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- MOTION -->
+                <div class="section-card">
+                    <div class="section-title">MPU_SENSITIVITY</div>
+                    <div class="form-group">
+                        <div style="display:flex; justify-content:space-between"><label>TILT_THRESHOLD</label><span id="val_tilt">20</span></div>
+                        <input type="range" min="5" max="60" name="motion.tilt" oninput="updateDisp(this, 'val_tilt')">
+                    </div>
+                    <div class="form-group">
+                        <div style="display:flex; justify-content:space-between"><label>SHAKE_THRESHOLD</label><span id="val_shake">200</span></div>
+                        <input type="range" min="100" max="800" name="motion.shake" oninput="updateDisp(this, 'val_shake')">
+                    </div>
+                    <div class="form-group">
+                        <div style="display:flex; justify-content:space-between"><label>FURIOUS_THRESHOLD</label><span id="val_furious">400</span></div>
+                        <input type="range" min="200" max="1000" name="motion.furious" oninput="updateDisp(this, 'val_furious')">
+                    </div>
+                    <div class="form-group">
+                        <div style="display:flex; justify-content:space-between"><label>TAP_SENSITIVITY</label><span id="val_tap">150</span></div>
+                        <input type="range" min="50" max="500" name="motion.tap" oninput="updateDisp(this, 'val_tap')">
+                    </div>
+                </div>
+
+                <!-- FEEDBACK & SYSTEM -->
+                <div class="section-card">
+                    <div class="section-title">SYSTEM_FEEDBACK</div>
+                    <div class="form-row">
+                        <div class="full-width">
+                            <label>AUDIO_VOLUME</label>
+                            <input type="range" name="audio.vol" min="0" max="100" oninput="updateDisp(this, 'val_vol')">
+                            <span id="val_vol">100</span>
+                        </div>
+                        <div class="full-width">
+                            <label>MIC_SENSITIVITY (dB)</label>
+                            <input type="range" name="audio.mic_t" min="1" max="20" oninput="updateDisp(this, 'val_mic')">
+                            <span id="val_mic">5</span>
+                        </div>
+                    </div>
+                    <div class="form-row" style="margin-top:10px">
+                        <div class="full-width">
+                            <label>HAPTIC_INTENSITY</label>
+                            <input type="range" name="haptic_int" min="0" max="255" oninput="updateDisp(this, 'val_hap')">
+                            <span id="val_hap">255</span>
+                        </div>
+                    </div>
+                    <div class="form-group" style="margin-top:15px">
+                        <label>STATUS_LED_COLOR (R G B)</label>
+                        <div class="form-row">
+                            <input type="number" name="led.r" placeholder="R" min="0" max="255">
+                            <input type="number" name="led.g" placeholder="G" min="0" max="255">
+                            <input type="number" name="led.b" placeholder="B" min="0" max="255">
+                        </div>
+                        <div style="margin-top:10px">
+                            <label>LED_BRIGHTNESS</label>
+                            <input type="range" name="led.bri" min="0" max="255" oninput="updateDisp(this, 'val_lebri')">
+                            <span id="val_lebri">100</span>
+                        </div>
+                    </div>
+                    <hr style="margin:20px 0; border:1px dashed var(--border-color); opacity:0.3;">
+                    <div class="form-row">
+                        <div class="full-width">
+                            <label>IDLE_DIM_MS</label>
+                            <input type="number" name="power.idle_ms">
+                        </div>
+                        <div class="full-width">
+                            <label>SLEEP_MS</label>
+                            <input type="number" name="power.sleep_ms">
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Sidebar -->
+            <div class="sidebar">
+                <div class="monitor-screen" id="logOutput">
+                    > READY_FOR_SYNC...
+                </div>
+                
+                <button id="btnSave" class="action-btn">
+                    SAVE & REBOOT
+                </button>
+                
+                <div style="margin-top:auto">
+                    <button id="btnReboot" class="action-btn btn-white" style="font-size: 0.8rem">REBOOT_ONLY</button>
+                    <button id="btnReset" class="action-btn btn-red" style="font-size: 0.8rem">FACTORY_RESET</button>
+                </div>
+            </div>
+        </div>
     </div>
 
-    <div class="main-container">
-        <header class="game-header">
-            <div class="logo-area">
-                <img src="logo.png" class="logo-img" alt="Logo">
-                <div class="brand-text">
-                    <div>DOGE_PET</div>
-                    <div style="font-size: 0.6em; color: var(--accent-pink);">v2.0_ARCADE</div>
-                </div>
-            </div>
-            
-            <div style="display:flex; gap:15px; align-items:center;">
-                <!-- Global Save Button moved to Header -->
-                <button id="globalSaveBtn" class="action-btn" style="background: #ff4757; color: white; padding: 10px 20px; font-size: 0.8rem;">SAVE_HARDWARE_CONFIG</button>
-                
-                <div id="status" class="status-badge disconnected">
-                    <span class="status-dot"></span>
-                    <span id="statusText">SYSTEM OFFLINE</span>
-                </div>
-            </div>
-        </header>
-
-        <div class="app-body"> <!-- Flex Container -->
-            <!-- Tabs Navigation (Fixed) -->
-            <div class="tabs-nav" style="overflow-x: auto; white-space: nowrap; padding-bottom: 5px; flex-shrink: 0;">
-                <button class="tab-btn active" data-tab="eyes">APP_EYES</button>
-                <button class="tab-btn" data-tab="oled">OLED</button>
-                <button class="tab-btn" data-tab="mic">MIC</button>
-                <button class="tab-btn" data-tab="amp">AMP</button>
-                <button class="tab-btn" data-tab="mpu">MPU</button>
-                <button class="tab-btn" data-tab="bat">BATTERY</button>
-                <button class="tab-btn" data-tab="vib">VIBRATOR</button>
-                <button class="tab-btn" data-tab="conn">WIFI/BT</button>
-            </div>
-
-            <!-- Scrollable Content Area -->
-            <div id="content-scroll-area" style="flex: 1; overflow-y: auto; padding: 5px;">
-
-            <!-- TAB: EYES (Main App) -->
-            <div id="tab-eyes" class="tab-content active dashboard-grid">
-                <div class="col-left">
-                    <section class="game-card">
-                        <div class="card-header">LIVE_FEED</div>
-                        <div class="card-body">
-                            <div class="oled-frame"><canvas id="oledCanvas" width="128" height="64"></canvas></div>
-                        </div>
-                    </section>
-                    <section class="game-card">
-                        <div class="card-header">I/O_PORT</div>
-                        <div class="card-body">
-                            <select id="portSelect"><option value="">SCANNING PORTS...</option></select>
-                            <div class="connect-row">
-                                <button id="refreshBtn" class="scan">RESCAN</button>
-                                <button id="connectBtn" class="primary">CONNECT</button>
-                            </div>
-                        </div>
-                    </section>
-                </div>
-                <div class="col-right">
-                    <section class="game-card">
-                        <div class="card-header">EXPRESSION_CONTROLS</div>
-                        <div class="card-body">
-                             <!-- Reusing existing controls simplified -->
-                             <div class="mood-grid" id="moodGroup">
-                                <button class="mood-btn active" data-value="0">DEFAULT</button>
-                                <button class="mood-btn" data-value="3">HAPPY</button>
-                                <button class="mood-btn" data-value="2">ANGRY</button>
-                                <button class="mood-btn" data-value="1">TIRED</button>
-                            </div>
-                            <div style="margin-top:15px; display:flex; gap:10px;">
-                                <button class="action-btn" data-action="blink" style="flex:1">BLINK</button>
-                                <button class="action-btn" data-action="laugh" style="flex:1">LAUGH</button>
-                                <button class="action-btn" data-action="confused" style="flex:1">CONFUSED</button>
-                            </div>
-                        </div>
-                    </section>
-
-                    <section class="game-card" style="margin-top: 15px;">
-                        <div class="card-header">EYE_SETTINGS</div>
-                        <div class="card-body setting-group">
-                            <label>WIDTH <span id="widthVal">36</span> <input type="range" id="width_slider" min="10" max="128" value="36"></label>
-                            <label>HEIGHT <span id="heightVal">36</span> <input type="range" id="height_slider" min="10" max="64" value="36"></label>
-                            <label>RADIUS <span id="radiusVal">8px</span> <input type="range" id="radius_slider" min="0" max="20" value="8"></label>
-                            <label>SPACING <span id="spacingVal">10px</span> <input type="range" id="spacing_slider" min="0" max="50" value="10"></label>
-                            <hr style="border-color:#333">
-                            <div class="toggle-grid">
-                                <label class="toggle-row">AUTO_BLINK <input type="checkbox" id="toggle_blink" checked></label>
-                                <label class="toggle-row">IDLE_MODE <input type="checkbox" id="toggle_idle" checked></label>
-                                <label class="toggle-row">SWEAT <input type="checkbox" id="toggle_sweat"></label>
-                                <label class="toggle-row">CURIOSITY <input type="checkbox" id="toggle_curiosity"></label>
-                                <label class="toggle-row">CYCLOPS <input type="checkbox" id="toggle_cyclops"></label>
-                            </div>
-                        </div>
-                    </section>
-                </div>
-            </div>
-
-            <!-- TAB: OLED -->
-            <div id="tab-oled" class="tab-content dashboard-grid">
-                <div class="col-left">
-                    <div class="game-card">
-                        <div class="card-header">PIN_CONFIG</div>
-                        <div class="card-body setting-group">
-                            <label>I2C_SDA <input type="number" id="pin_sda" class="pin-input"></label>
-                            <label>I2C_SCL <input type="number" id="pin_scl" class="pin-input"></label>
-                            <label>BTN_PIN <input type="number" id="pin_btn" class="pin-input"></label>
-                            <label>LED_PIN <input type="number" id="pin_led" class="pin-input"></label>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-right">
-                    <div class="game-card">
-                        <div class="card-header">TESTS</div>
-                        <div class="card-body action-grid">
-                            <button class="action-btn" data-action="test_oled_pattern">TEST_PATTERN</button>
-                            <button class="action-btn" data-action="test_oled_clear">CLEAR_SCREEN</button>
-                            <div style="grid-column: 1 / -1; margin-top: 10px;">
-                                <input type="text" id="oled_text_input" placeholder="TYPE_TEXT_HERE" style="width: 70%; padding: 5px; background: #333; border: 1px solid #555; color: white; font-family: var(--pixel-font);">
-                                <button class="action-btn" id="oledSendTxtBtn" style="width: 25%;">SEND</button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- TAB: MIC -->
-            <div id="tab-mic" class="tab-content dashboard-grid">
-                <div class="col-left">
-                     <div class="game-card">
-                        <div class="card-header">PIN_CONFIG</div>
-                        <div class="card-body setting-group">
-                            <label>I2S_SD <input type="number" id="pin_mic_sd" class="pin-input"></label>
-                            <label>I2S_WS <input type="number" id="pin_mic_ws" class="pin-input"></label>
-                            <label>I2S_SCK <input type="number" id="pin_mic_sck" class="pin-input"></label>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-right">
-                     <div class="game-card">
-                        <div class="card-header">SPECTRUM_ANALYZER</div>
-                        <div class="card-body">
-                            <div class="sensor-display">LEVEL: <span id="mic-val">--</span> dB</div>
-                            <canvas id="micViz" width="300" height="100" style="background: #111; width: 100%; border: 1px solid #333; margin-top: 10px;"></canvas>
-                            <button class="action-btn" data-action="test_mic_read" style="margin-top: 5px;">READ_SAMPLE</button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- TAB: AMP -->
-            <div id="tab-amp" class="tab-content dashboard-grid">
-                <div class="col-left">
-                    <div class="game-card">
-                        <div class="card-header">PIN_CONFIG</div>
-                        <div class="card-body setting-group">
-                            <label>I2S_DOUT <input type="number" id="pin_i2s_do" class="pin-input"></label>
-                            <label>I2S_BCLK <input type="number" id="pin_i2s_bclk" class="pin-input"></label>
-                            <label>I2S_LRC <input type="number" id="pin_i2s_lrc" class="pin-input"></label>
-                        </div>
-                    </div>
-                    <div class="game-card" style="margin-top: 15px;">
-                        <div class="card-header">VOLUME_CTRL</div>
-                        <div class="card-body setting-group">
-                            <label>VOLUME <span id="volumeVal">100</span>% <input type="range" id="volume_slider" min="0" max="100" value="100"></label>
-                            <label>LED_BRIGHTNESS <span id="ledBrightnessVal">60</span> <input type="range" id="led_brightness_slider" min="0" max="255" value="60"></label>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-right">
-                    <div class="game-card">
-                        <div class="card-header">AUDIO_GEN</div>
-                        <div class="card-body action-grid">
-                            <button class="action-btn" data-action="test_tone_on">PLAY_440HZ</button>
-                            <button class="action-btn" data-action="test_tone_off">STOP</button>
-                            <div style="grid-column: 1 / -1; display:flex; gap:5px; align-items:center; margin-top:10px;">
-                                <input type="number" id="tone_freq" placeholder="Freq Hz" value="1000" style="width: 30%;">
-                                <input type="number" id="tone_dur" placeholder="Dur ms" value="500" style="width: 30%;">
-                                <button class="action-btn" id="playCustomToneBtn" style="flex:1;">PLAY</button>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="game-card" style="margin-top: 15px;">
-                        <div class="card-header">LED_TEST</div>
-                        <div class="card-body action-grid">
-                            <button class="action-btn" data-action="test_led_on">LED_ON</button>
-                            <button class="action-btn" data-action="test_led_off">LED_OFF</button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- TAB: MPU -->
-            <div id="tab-mpu" class="tab-content dashboard-grid">
-                 <div class="col-left">
-                    <div class="game-card">
-                        <div class="card-header">ACCELEROMETER</div>
-                        <div class="card-body">
-                            <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:10px; text-align:center;">
-                                <div><div style="font-size:0.7rem; opacity:0.6;">X</div><div style="font-size:1.2rem; color:var(--accent-pink);" id="acc-x">0</div></div>
-                                <div><div style="font-size:0.7rem; opacity:0.6;">Y</div><div style="font-size:1.2rem; color:var(--accent-green);" id="acc-y">0</div></div>
-                                <div><div style="font-size:0.7rem; opacity:0.6;">Z</div><div style="font-size:1.2rem; color:var(--accent-blue);" id="acc-z">0</div></div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="game-card" style="margin-top:10px;">
-                        <div class="card-header">GYROSCOPE (°/s)</div>
-                        <div class="card-body">
-                            <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:10px; text-align:center;">
-                                <div><div style="font-size:0.7rem; opacity:0.6;">GX</div><div style="font-size:1.2rem; color:var(--accent-pink);" id="gyro-x">0</div></div>
-                                <div><div style="font-size:0.7rem; opacity:0.6;">GY</div><div style="font-size:1.2rem; color:var(--accent-green);" id="gyro-y">0</div></div>
-                                <div><div style="font-size:0.7rem; opacity:0.6;">GZ</div><div style="font-size:1.2rem; color:var(--accent-blue);" id="gyro-z">0</div></div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="game-card" style="margin-top:10px;">
-                        <div class="card-header">ACTIONS</div>
-                        <div class="card-body action-grid">
-                            <button class="action-btn" data-action="test_mpu_read">LOG_RAW_DATA</button>
-                            <label style="display:flex; align-items:center; gap:5px; font-size:0.7rem;">
-                                <input type="checkbox" id="mpu-fast-poll"> Fast Update (100ms)
-                            </label>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-right">
-                    <div class="game-card">
-                        <div class="card-header">3D_ORIENTATION</div>
-                        <div class="card-body" style="height: 500px; position: relative; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); border-radius: 8px; overflow:hidden;">
-                            <!-- Model Viewer for YETI.glb -->
-                            <model-viewer 
-                                id="mpu-model"
-                                src="YETI.glb" 
-                                alt="Yeti 3D Model"
-                                camera-controls
-                                disable-zoom
-
-                                shadow-intensity="1"
-                                style="width: 100%; height: 100%;"
-                                orientation="180deg 0deg 0deg">
-                            </model-viewer>
-                            
-                            <!-- Axis Helper Overlay -->
-                            <div class="axis-container" style="position: absolute; bottom: 10px; right: 10px; width: 60px; height: 60px; pointer-events: none; perspective: 1000px; z-index: 100;">
-                                <div id="axis-base" style="position: relative; width: 100%; height: 100%; transform-style: preserve-3d;">
-                                    <!-- X Axis (Red) - RIGHT -->
-                                    <div style="position: absolute; bottom: 0; left: 0; width: 40px; height: 2px; background: #fe4a49; transform-origin: 0 50%; transform: rotateY(0deg);"></div>
-                                    <div style="position: absolute; bottom: 0; left: 45px; color:#fe4a49; font-size:10px;">X</div>
-                                    
-                                    <!-- Y Axis (Green) - UP -->
-                                    <div style="position: absolute; bottom: 0; left: 0; width: 2px; height: 40px; background: #00ebc7; transform-origin: 50% 100%; transform: rotateX(0deg);"></div>
-                                    <div style="position: absolute; bottom: 45px; left: -3px; color:#00ebc7; font-size:10px;">Y</div>
-                                    
-                                    <!-- Z Axis (Blue) - DEPTH/FORWARD -->
-                                    <div style="position: absolute; bottom: 0; left: 0; width: 2px; height: 40px; background: #297afb; transform-origin: 50% 100%; transform: rotateX(90deg);"></div>
-                                    <div style="position: absolute; bottom: 5px; left: 10px; transform: rotateX(90deg) translateZ(35px); color:#297afb; font-size:10px;">Z</div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Load Model Viewer Script -->
-            <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/3.4.0/model-viewer.min.js"></script>
-
-            <!-- TAB: BATTERY -->
-            <div id="tab-bat" class="tab-content dashboard-grid">
-                 <div class="col-left">
-                    <div class="game-card">
-                        <div class="card-header">PIN_CONFIG</div>
-                        <div class="card-body setting-group">
-                            <label>VBAT_PIN <input type="number" id="pin_vbat" class="pin-input"></label>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-right">
-                    <div class="game-card">
-                        <div class="card-header">STATUS</div>
-                        <div class="card-body" style="text-align:center;">
-                            <div style="font-size:2.5rem; color:var(--accent-green);" id="vbat-val">-- V</div>
-                            <div style="font-size:1.5rem; color:var(--accent-pink); margin-top:10px;" id="vbat-pct">-- %</div>
-                            <div style="width:80%; height:20px; background:#333; margin:10px auto; border-radius:10px; overflow:hidden;">
-                                <div id="vbat-bar" style="width:0%; height:100%; background:linear-gradient(90deg, #ff4757, #2ed573);"></div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- TAB: VIBRATOR -->
-            <div id="tab-vib" class="tab-content dashboard-grid">
-                <div class="col-left">
-                     <div class="game-card">
-                        <div class="card-header">PIN_CONFIG</div>
-                        <div class="card-body setting-group">
-                            <label>VIB_LEFT <input type="number" id="pin_vibL" class="pin-input"></label>
-                            <label>VIB_RIGHT <input type="number" id="pin_vibR" class="pin-input"></label>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-right">
-                    <div class="game-card">
-                        <div class="card-header">HAPTIC_SEQUENCER</div>
-                        <div class="card-body action-grid">
-                            <div style="display:flex; gap:10px;">
-                                <button class="action-btn" style="flex:1" data-action="test_vib_l_on">L_ON</button>
-                                <button class="action-btn" style="flex:1" data-action="test_vib_l_off">L_OFF</button>
-                            </div>
-                            <div style="display:flex; gap:10px;">
-                                <button class="action-btn" style="flex:1" data-action="test_vib_r_on">R_ON</button>
-                                <button class="action-btn" style="flex:1" data-action="test_vib_r_off">R_OFF</button>
-                            </div>
-                            <hr style="border-color:#333; grid-column: 1 / -1;">
-                            <button class="action-btn" data-action="test_vib_seq1">SEQ_HEARTBEAT</button>
-                            <button class="action-btn" data-action="test_vib_seq2">SEQ_ALARM</button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- TAB: WIFI/BT -->
-            <div id="tab-conn" class="tab-content dashboard-grid">
-                <div class="col-left">
-                    <div class="game-card">
-                        <div class="card-header">WIRELESS</div>
-                        <div class="card-body">
-                            <p style="opacity:0.6;">WIFI & BLUETOOTH MODULES</p>
-                            <button class="action-btn" disabled>SCAN_NETWORKS (WIP)</button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            </div> <!-- End Scrollable Content Area -->
-            
-            <!-- SERIAL MONITOR -->
-            <section class="game-card serial-panel" style="margin-top: 5px;">
-                <div class="card-header">SERIAL_MONITOR</div>
-                <div class="card-body">
-                    <div id="term-out" class="terminal-output">
-                        > SYSTEM READY...
-                    </div>
-                    <div style="margin-top: 5px; display:flex; gap:10px;">
-                         <label style="display:flex; align-items:center; gap:5px; font-size:0.7rem;">
-                            <input type="checkbox" id="auto-scroll" checked> Auto-Scroll
-                        </label>
-                         <button class="action-btn" id="clearLogsBtn" style="padding:5px 10px; font-size:0.6rem;">CLEAR</button>
-                    </div>
-                </div>
-            </section>
-
-        </div> <!-- End app-body -->
+    <!-- Scripts -->
+    <script>
+        function updateDisp(el, id) {
+            document.getElementById(id).innerText = el.value;
+        }
+    </script>
     <script src="app.js"></script>
 </body>
 </html>

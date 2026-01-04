@@ -2,7 +2,9 @@
 // Communicates via USB Serial with PC companion app
 
 #include <Wire.h>
+#include <Wire.h>
 #include <DogePetLib.h>
+#include "ConfigManager.h"
 
 // External controls for RoboEyes library
 bool gEyesAutoFlush = true;
@@ -30,7 +32,7 @@ void setup() {
   delay(500);
 
   // Load hardware config from NVS (must be before Wire.begin)
-  //loadHardwareConfig();
+  ConfigManager::begin();
 
   // I2C Bus
   Wire.begin(I2C_SDA, I2C_SCL, 400000);
@@ -47,7 +49,7 @@ void setup() {
   Animation::init();
   Events::init();
   
-  // Serial command handler (disabled until webapp ready)
+  // Serial command handler
   // setupSerialCmd(Face::getEyes());
 }
 
@@ -72,7 +74,7 @@ void runBootSequence() {
       
     case BOOT_DISPLAY_TEST:
       Face::updateProgressBar(10, "Display Test");
-      Face::playLineAnimation();
+      //Face::playLineAnimation();
       bootState = BOOT_IMU_TEST;
       break;
       
@@ -170,7 +172,7 @@ void loop() {
   }
   
   // Serial Command Handling
-  // processSerialCmd();
+  processSerialCmd();
   
   // Update Modules
   Motion::update();
@@ -195,7 +197,40 @@ void loop() {
 }
 
 // =============================================================================
-// TOUCH EVENT HANDLING
+// SERIAL COMMAND HANDLING
 // =============================================================================
-// Moved to Events.cpp
+void processSerialCmd() {
+  if (Serial.available()) {
+    String line = Serial.readStringUntil('\n');
+    line.trim();
+    if (line.length() == 0) return;
+    
+    // Simple command parsing
+    if (line.indexOf("get_config") >= 0) {
+      Serial.print("{\"type\":\"config\",\"data\":");
+      Serial.print(ConfigManager::getJson());
+      Serial.println("}");
+    }
+    else if (line.indexOf("set_config") >= 0) {
+      if (ConfigManager::applyJson(line)) {
+        Serial.println("{\"status\":\"ok\",\"msg\":\"Config updated. Rebooting...\"}");
+        delay(500);
+        ESP.restart();
+      } else {
+        Serial.println("{\"status\":\"error\",\"msg\":\"Invalid JSON\"}");
+      }
+    }
+    else if (line.indexOf("reboot") >= 0) {
+      Serial.println("{\"status\":\"info\",\"msg\":\"Rebooting...\"}");
+      delay(500);
+      ESP.restart();
+    }
+    else if (line.indexOf("factory_reset") >= 0) {
+      Serial.println("{\"status\":\"info\",\"msg\":\"Resetting to defaults...\"}");
+      ConfigManager::resetToDefaults();
+      delay(500);
+      ESP.restart();
+    }
+  }
+}
 

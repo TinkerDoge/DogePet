@@ -2,6 +2,7 @@
 #include "Motion.h"
 #include "mpu6050.h"
 #include "config.h"
+#include "ConfigManager.h"
 #include <Wire.h>
 #include <math.h>
 
@@ -48,10 +49,10 @@ Motion::Motion(int sdaPin, int sclPin, uint8_t mpuAddr)
     : _sdaPin(sdaPin), _sclPin(sclPin), _addr(mpuAddr),
       _initialized(false),
       _lpfAx(0), _lpfAy(0), _lpfAz(1.0f), _lpfG(0),
-      _tiltDeg(TILT_THRESHOLD_DEG), 
-      _shakeAngryDps(SHAKE_ANGRY_DPS),
-      _shakeFuriousDps(SHAKE_FURIOUS_DPS),
-      _tapThresh(TAP_SPIKE_DPS), 
+      _tiltDeg(DEFAULT_TILT_THRESHOLD_DEG), 
+      _shakeAngryDps(DEFAULT_SHAKE_ANGRY_DPS),
+      _shakeFuriousDps(DEFAULT_SHAKE_FURIOUS_DPS),
+      _tapThresh(DEFAULT_TAP_SPIKE_DPS), 
       _stillGThresh(STILL_G_THRESH), 
       _az1gTol(AZ_1G_TOL),
       _moving(false), _shaking(false), _furiousShaking(false),
@@ -61,6 +62,17 @@ Motion::Motion(int sdaPin, int sclPin, uint8_t mpuAddr)
 // ---- Lifecycle ----
 bool Motion::begin() {
     MD_PRINT("begin() SDA=%d SCL=%d ADDR=0x%02X\n", _sdaPin, _sclPin, _addr);
+
+    // Calibrate and set thresholds
+    calibrate();
+    
+    // Load runtime settings
+    _tiltDeg = settings.motion.tilt;
+    _shakeAngryDps = settings.motion.shake;
+    _shakeFuriousDps = settings.motion.furious;
+    _tapThresh = settings.motion.tap;
+    
+    _initialized = true;
     
     // Initialize I2C (if not already done)
     Wire.begin(_sdaPin, _sclPin);

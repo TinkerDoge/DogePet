@@ -1,9 +1,36 @@
 # DogePet Software Architecture
 
 ## Overview
-The DogePet firmware has been refactored into a modular architecture to improve maintainability, testability, and separation of concerns. The system is composed of multiple singleton modules, each responsible for a specific hardware domain or logical function.
+The DogePet firmware uses a **library-based modular architecture** for improved maintainability, testability, and code reuse. All modules are packaged in the `DogePetLib` Arduino library located in `libraries/DogePetLib/`.
 
-The main sketch (`DogePet.ino`) acts as the orchestrator, initializing these modules in a specific sequence, running a boot test sequence, and routing global events (like Serial commands and touch input).
+The main sketch (`DogePet.ino`) acts as the orchestrator, including a single header (`<DogePetLib.h>`) to access all modules. It initializes modules in sequence, runs a boot test, and coordinates global events.
+
+---
+
+## Library Structure
+
+### DogePetLib (`libraries/DogePetLib/`)
+
+The library contains all hardware modules with a single entry point:
+
+```cpp
+#include <DogePetLib.h>  // Includes all modules
+```
+
+**Library Files:**
+- `DogePetLib.h` - Main include header
+- `config.h` - Centralized configuration (pins, thresholds, timing)
+- `mpu6050.h` - Simple inline I2C helper for MPU6050
+- `Motion.h/.cpp` - Motion sensing with event detection
+- `Face.h/.cpp` - OLED display and eye animations
+- `Audio.h/.cpp` - I2S mic input and speaker output
+- `Haptics.h/.cpp` - Vibration motor control
+- `Touch.h/.cpp` - Debounced touch input
+- `Power.h/.cpp` - Battery monitoring and sleep management
+- `LED.h/.cpp` - WS2812 NeoPixel control
+- `Events.h/.cpp` - Touch → behavior handler
+- `Animation.h/.cpp` - High-level animation sequences
+- `FluxGarage_RoboEyes.h` - Eye animation library
 
 ---
 
@@ -25,17 +52,26 @@ The main sketch (`DogePet.ino`) acts as the orchestrator, initializing these mod
     *   `showActiveFace()`: Returns to normal animated eyes.
 
 ### 2. Motion Module (`Motion.h` / `Motion.cpp`)
-**Responsibility**: Handles the Inertial Measurement Unit (IMU) for motion sensing.
+**Responsibility**: High-level motion interpreter with event detection.
 
 *   **Hardware**: MPU6050/MPU6500 (I2C 0x68).
-*   **Libraries**: `MPU6050` (I2Cdev).
-*   **Key Functions**:
-    *   `init()`: Connects to MPU6050 and verifies communication.
-    *   `calibrate()`: Sets sensor offsets (assumes stationary boot).
-    *   `isReady()`: Returns true if sensor is healthy.
-    *   `getRawData(...)`: Populates 6-axis acceleration and gyro data.
-    *   `update()`: Monitors IMU and logs only when values change.
-    *   `setLogEnabled(bool)`: Enable/disable change-detection logging.
+*   **Approach**: Simple I2C polling with noise-gated low-pass filtering.
+*   **Key Static Functions** (for compatibility):
+    *   `Motion::init()`: Initialize global instance.
+    *   `Motion::update()`: Poll sensor, return event.
+    *   `Motion::isReady()`: Check if initialized.
+    *   `Motion::calibrate()`: Recalibrate sensor.
+*   **Motion Events**:
+    *   `None`: No significant motion.
+    *   `Tilt`: Gentle tilt beyond threshold.
+    *   `Shake`: Brief shake detected.
+    *   `FuriousShake`: Sustained hard shake.
+    *   `Tap`: Single tap detected.
+    *   `Still`: Device returned to stationary.
+*   **Configuration** (from `config.h`):
+    *   `TILT_THRESHOLD_DEG`: Tilt detection (default 20°).
+    *   `SHAKE_ANGRY_DPS`: Shake threshold (default 200 dps).
+    *   `SHAKE_FURIOUS_DPS`: Furious shake (default 280 dps).
 
 ### 3. Audio Module (`Audio.h` / `Audio.cpp`)
 **Responsibility**: Manages the I2S subsystem for both Input (Microphone) and Output (Amplifier).
@@ -160,52 +196,85 @@ The firmware uses a state machine in `loop()` for boot testing (after `setup()` 
 
 ```
 DogePet/
-├── DogePet.ino          # Main Sketch (Coordinator + Boot State Machine)
-├── include/             # Header Files (.h)
-│   ├── config.h         # Pinouts, Constants & NVS Namespaces
-│   ├── Face.h           # Face Module Interface
-│   ├── Motion.h         # Motion Module Interface
-│   ├── Audio.h          # Audio Module Interface
-│   ├── Animation.h      # Animation Module Interface
-│   ├── Power.h          # Power/Sleep Module Interface
-│   ├── Haptics.h        # Haptics Module Interface
-│   ├── Touch.h          # Touch Input Module Interface
-│   ├── LED.h            # LED Module Interface
-│   ├── serial_cmd.h     # Serial Command Handler Interface
-│   └── FluxGarage_RoboEyes.h  # Eye Animation Library
-├── Face.cpp             # Face Implementation
-├── Motion.cpp           # Motion Implementation
-├── Audio.cpp            # Audio Implementation
-├── Animation.cpp        # Animation Implementation
-├── Power.cpp            # Power/Sleep Implementation
-├── Haptics.cpp          # Haptics Implementation
-├── Touch.cpp            # Touch Input Implementation
-├── LED.cpp              # LED Implementation (if exists)
-├── serial_cmd.cpp       # Serial Command Handler
-├── companion/           # PC Companion App (Python/Flask)
-│   ├── app.py           # Flask server
-│   ├── static/          # Web UI (HTML/JS/CSS)
-│   └── serial_comm.py   # Serial communication
-└── DOCS/                # Documentation
-    ├── HARDWARE.md      # Pinouts & wiring
-    ├── SOFTWARE_ARCHITECTURE.md  # This file
-    └── WebApp_Protocol.md  # Serial API protocol
+├── DogePet.ino              # Main Sketch (uses DogePetLib)
+├── include/                 # Font headers only
+│   ├── Pixeboy20.h          # Custom fonts
+│   ├── ShopeeRegular12.h
+│   ├── ToastFont12.h
+│   └── ToastRenderer.h
+├── libraries/
+│   └── DogePetLib/          # All modules packaged as library
+│       ├── library.properties
+│       └── src/
+│           ├── DogePetLib.h     # Single include header
+│           ├── config.h         # Pins, thresholds, timing
+│           ├── mpu6050.h        # Simple I2C MPU helper
+│           ├── Motion.h/.cpp    # Motion events
+│           ├── Face.h/.cpp      # OLED + RoboEyes
+│           ├── Audio.h/.cpp     # I2S mic + speaker
+│           ├── Haptics.h/.cpp   # Vibration motors
+│           ├── Touch.h/.cpp     # Touch input
+│           ├── Power.h/.cpp     # Battery + sleep
+│           ├── LED.h/.cpp       # NeoPixel
+│           ├── Events.h/.cpp    # Touch behaviors
+│           ├── Animation.h/.cpp # Startup sequences
+│           └── FluxGarage_RoboEyes.h
+├── companion/               # PC Companion App (Python/Flask)
+│   ├── app.py               # Flask server
+│   ├── static/              # Web UI (HTML/JS/CSS)
+│   └── serial_comm.py       # Serial communication
+├── tools/                   # Python utilities
+│   ├── font_to_header.py    # TTF → GFX font converter
+│   └── png_to_header.py     # PNG → bitmap converter
+├── sectors/                 # Experimental refactor (not integrated)
+└── DOCS/                    # Documentation
+    ├── HARDWARE.md
+    ├── SOFTWARE_ARCHITECTURE.md
+    └── WebApp_Protocol.md
 ```
 
 ---
 
 ## Configuration System
 
-All configurable parameters are centralized in `config.h` with NVS persistence:
+All configurable parameters are centralized in `libraries/DogePetLib/src/config.h`:
 
-| NVS Namespace | Purpose |
-|---------------|----------|
-| `dogepet_hw` | Hardware pin configuration |
-| `dogepet_eyes` | Eye appearance settings |
-| `dogepet_audio` | Audio/volume settings |
-| `dogepet_hap` | Haptics settings |
-| `dogepet_led` | LED color/brightness |
-| `dogepet_pwr` | Power/battery settings |
-| `dogepet_cfg` | Timing/behavior settings |
-| `dogepet_imu` | IMU calibration offsets |
-| `dogepet_dev` | Device info |
+| Category | Examples |
+|----------|----------|
+| **Hardware Pins** | `I2C_SDA`, `I2C_SCL`, `FUNC_BTN`, `LED_PIN` |
+| **Display** | `SCREEN_W`, `SCREEN_H`, `SCREEN_ADDR` |
+| **Eye Appearance** | `EYE_WIDTH`, `EYE_HEIGHT`, `EYE_SPACING` |
+| **Audio** | `AUDIO_SAMPLE_RATE`, `AUDIO_VOLUME` |
+| **Motion Thresholds** | `TILT_THRESHOLD_DEG`, `SHAKE_ANGRY_DPS` |
+| **Power/Battery** | `VBAT_MIN_V`, `VBAT_MAX_V`, `IDLE_TIMEOUT_MS` |
+| **Touch Timing** | `DEBOUNCE_MS`, `TAP_MAX_MS`, `HOLD_MIN_MS` |
+| **Debug Flags** | `ENABLE_MOTION_DEBUG`, `DEBUG_SERIAL` |
+
+---
+
+## Usage Example
+
+```cpp
+#include <Wire.h>
+#include <DogePetLib.h>
+
+void setup() {
+    Serial.begin(115200);
+    Wire.begin(I2C_SDA, I2C_SCL, 400000);
+    
+    Motion::init();
+    Face::init();
+    Touch::init();
+    // ... other modules
+}
+
+void loop() {
+    Motion::Event e = Motion::update();
+    if (e == Motion::Event::Shake) {
+        // React to shake
+    }
+    
+    Touch::update();
+    Face::update();
+}
+```

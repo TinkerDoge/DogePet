@@ -45,31 +45,31 @@ static constexpr uint8_t  SCREEN_W       = 128;
 static constexpr uint8_t  SCREEN_H       = 64;
 static constexpr int8_t   OLED_RESET     = -1;
 static constexpr uint8_t  SCREEN_ADDR    = 0x3C;
-static constexpr uint8_t  OLED_CONTRAST  = 255;
+static constexpr uint8_t  DEFAULT_OLED_CONTRAST  = 255;
 
 // =============================================================================
 // EYE APPEARANCE
 // =============================================================================
-static constexpr uint8_t EYE_WIDTH         = 28;
-static constexpr uint8_t EYE_HEIGHT        = 40;
-static constexpr uint8_t EYE_BORDER_RADIUS = 8;
-static constexpr int8_t  EYE_SPACING       = 10;
-static constexpr int8_t  EYE_OFFSET_X      = 0;
-static constexpr int8_t  EYE_OFFSET_Y      = 0;
+static constexpr uint8_t DEFAULT_EYE_WIDTH         = 28;
+static constexpr uint8_t DEFAULT_EYE_HEIGHT        = 40;
+static constexpr uint8_t DEFAULT_EYE_BORDER_RADIUS = 8;
+static constexpr int8_t  DEFAULT_EYE_SPACING       = 10;
+static constexpr int8_t  DEFAULT_EYE_OFFSET_X      = 0;
+static constexpr int8_t  DEFAULT_EYE_OFFSET_Y      = 0;
 
 // Eye Animation Timing (seconds for RoboEyes)
-static constexpr bool    EYE_AUTO_BLINK  = true;
-static constexpr bool    EYE_IDLE_MODE   = true;
-static constexpr uint8_t BLINK_INTERVAL  = 3;
-static constexpr uint8_t BLINK_VARIATION = 1;
-static constexpr uint8_t IDLE_INTERVAL   = 4;
-static constexpr uint8_t IDLE_VARIATION  = 2;
+static constexpr bool    DEFAULT_EYE_AUTO_BLINK  = true;
+static constexpr bool    DEFAULT_EYE_IDLE_MODE   = true;
+static constexpr uint8_t DEFAULT_BLINK_INTERVAL  = 3;
+static constexpr uint8_t DEFAULT_BLINK_VARIATION = 1;
+static constexpr uint8_t DEFAULT_IDLE_INTERVAL   = 4;
+static constexpr uint8_t DEFAULT_IDLE_VARIATION  = 2;
 
 // =============================================================================
 // AUDIO SETTINGS
 // =============================================================================
 static constexpr uint32_t AUDIO_SAMPLE_RATE = 22050;
-static constexpr uint8_t  AUDIO_VOLUME      = 10;  // 0-100
+static constexpr uint8_t  DEFAULT_AUDIO_VOLUME      = 100;  // 0-100
 
 // Microphone
 static constexpr uint32_t MIC_SAMPLE_RATE = 22050;
@@ -79,7 +79,7 @@ static constexpr uint32_t MIN_MIC_LOG_INTERVAL_MS = 500;
 // =============================================================================
 // HAPTICS SETTINGS
 // =============================================================================
-static constexpr uint8_t HAPTIC_INTENSITY = 200;  // 0-255
+static constexpr uint8_t DEFAULT_HAPTIC_INTENSITY = 255;  // 0-255
 static constexpr uint8_t HAPTIC_CLICK_MS  = 40;
 
 // =============================================================================
@@ -111,22 +111,22 @@ static constexpr uint16_t TAP_MAX_MS          = 300;
 static constexpr uint16_t HOLD_MIN_MS         = 400;
 
 // Sleep/Power Saving
-static constexpr uint32_t IDLE_TIMEOUT_MS  = 60000;   // 1 min to dim
-static constexpr uint32_t SLEEP_TIMEOUT_MS = 120000;  // 2 min to sleep
+static constexpr uint32_t DEFAULT_IDLE_TIMEOUT_MS  = 60000;   // 1 min to dim
+static constexpr uint32_t DEFAULT_SLEEP_TIMEOUT_MS = 120000;  // 2 min to sleep
 static constexpr uint8_t  DIM_BRIGHTNESS   = 30;
 
 // =============================================================================
 // MOTION/IMU SETTINGS
 // =============================================================================
 static constexpr uint32_t IMU_TICK_MS        = 40;      // ~25Hz polling
-static constexpr float    TILT_THRESHOLD_DEG = 20.0f;   // Tilt detection
-static constexpr float    SHAKE_ANGRY_DPS    = 200.0f;  // Shake detection
-static constexpr float    SHAKE_FURIOUS_DPS  = 280.0f;  // Hard shake
+static constexpr float    DEFAULT_TILT_THRESHOLD_DEG = 20.0f;   // Tilt detection
+static constexpr float    DEFAULT_SHAKE_ANGRY_DPS    = 200.0f;  // Shake detection
+static constexpr float    DEFAULT_SHAKE_FURIOUS_DPS  = 280.0f;  // Hard shake
 static constexpr uint16_t SHAKE_MS           = 120;     // Sustained shake window
 static constexpr uint16_t FURIOUS_MS         = 200;     // Furious shake window
 static constexpr float    STILL_G_THRESH     = 0.06f;   // Still detection
 static constexpr float    AZ_1G_TOL          = 0.12f;   // az within 1g±tol
-static constexpr float    TAP_SPIKE_DPS      = 140.0f;  // Tap detection threshold
+static constexpr float    DEFAULT_TAP_SPIKE_DPS      = 140.0f;  // Tap detection threshold
 static constexpr uint32_t TAP_COOLDOWN_MS    = 600;     // Min time between taps
 
 // LPF noise thresholds
