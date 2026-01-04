@@ -197,11 +197,13 @@ Right Gate →    GPIO 3
 
 **Note:** Do NOT connect motors directly to GPIO! Use a transistor (2N2222, 2N7000) or motor driver (DRV8833) with flyback diode.
 
-**Haptic Patterns:**
-- **Click**: Short 50ms pulse at full power
-- **Double Click**: Heartbeat pattern (lub-DUB)
-- **Alarm**: Rapid alternating left/right
-- **Purr**: Cat-like rhythmic pattern for petting feedback
+**Haptic Patterns (80-100% Intensity Range, PWM 204-255):**
+- **Click**: Short 60ms pulse at 90% intensity (PWM 230)
+- **Double Click**: Heartbeat pattern (lub-DUB) - 82-100% intensity (PWM 210-255)
+- **Alarm**: Rapid alternating left/right at 90% intensity (PWM 230)
+- **Purr**: Cat-like 5-phase rhythmic pattern (80-100% intensity, PWM 204-255)
+  - Pattern: Medium (85%) → Strong (100%) → Medium (85%) → Soft (80%) → Medium (85%)
+  - Timing: 90-130ms per phase for natural feel
 
 ---
 
@@ -224,17 +226,19 @@ GND    →    GND
 I/O    →    GPIO 41
 ```
 
-**Touch Events:**
-- **Tap** (< 300ms): Triggers eye blink
-- **Hold** (> 400ms): Triggers "petting" mode with happy eyes + purr vibration
+**Touch Events (All with Haptic + Sound Feedback):**
+- **Tap** (< 300ms): Eye blink + haptic click (90% intensity) + tap sound
+- **Hold** (> 400ms): Triggers "petting" mode with happy eyes + haptic purr (80-100% intensity) + happy sound
+- **Hold End**: Haptic purr stops + content sound
 
 **Optional Chin Touch:**
 A second touch sensor can be added on GPIO 1. Enable with `#define TOUCH_CHIN_ENABLED` in `config.h`.
 
-**Chin Behaviors:**
-- **Chin Tap**: Playful wink + chirp sound
-- **Chin Hold (scratches)**: Blissfully closes eyes + purr + content sound
-- **Combo (Head + Chin)**: Overwhelmed with love! Confused happy face + surprise beep
+**Chin Behaviors (All with Haptic + Sound Feedback):**
+- **Chin Tap**: Playful wink + haptic click (90% intensity) + chirp sound
+- **Chin Hold (scratches)**: Blissfully closes eyes + haptic purr (80-100% intensity) + purr sound
+- **Chin Hold End**: Eyes open + haptic purr stops + satisfied sound
+- **Combo (Head + Chin)**: Overwhelmed with love! Confused happy face + haptic double-click heartbeat (82-100% intensity) + surprise beep
 
 ---
 

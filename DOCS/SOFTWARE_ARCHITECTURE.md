@@ -87,6 +87,16 @@ The library contains all hardware modules with a single entry point:
     *   `playMelody()`: Plays the startup jingle (C5-E5-G5-C6).
     *   `update()`: Monitors mic level and logs only when dB changes.
     *   `setMicLogEnabled(bool)`: Enable/disable mic logging.
+*   **Sound Effects**:
+    *   `chirp()`: Playful two-tone chirp (800Hz → 1200Hz).
+    *   `purrrSound()`: Content purring sound (descending: 600Hz → 500Hz → 400Hz).
+    *   `surpriseBeep()`: Surprised ascending beep (400Hz → 600Hz → 900Hz → 1200Hz).
+    *   `yawn()`: Tired yawn sound (descending: 800Hz → 600Hz → 400Hz → 300Hz).
+*   **Touch Interaction Sounds**:
+    *   `tapSound()`: Gentle tap feedback - short pleasant beep (600Hz → 800Hz).
+    *   `happySound()`: Happy/content sound for petting start - ascending pleasant tones (500Hz → 600Hz → 700Hz).
+    *   `contentSound()`: Satisfied sound for petting end - gentle descending sigh (600Hz → 500Hz → 400Hz).
+    *   `satisfiedSound()`: Gentle satisfied sound for chin scratch end - soft content purr (450Hz → 400Hz).
 
 ### 4. Animation Module (`Animation.h` / `Animation.cpp`)
 **Responsibility**: Orchestrates high-level behaviors and command sequences.
@@ -119,14 +129,16 @@ The library contains all hardware modules with a single entry point:
 **Responsibility**: Controls vibration motors for haptic feedback.
 
 *   **Hardware**: 2x ERM vibration motors (GPIO 3, 4) via PWM.
+*   **Intensity Range**: All haptic patterns use 80-100% intensity (PWM 204-255) optimized for weaker motors.
 *   **Key Functions**:
     *   `init()`: Configures LEDC PWM for motor control.
     *   `buzz(left, right, durationMs)`: Direct motor control.
-    *   `click()`: Short tactile feedback.
-    *   `doubleClick()`: Heartbeat pattern.
-    *   `alarm()`: Urgent alternating pattern.
-    *   `startPurr()` / `stopPurr()`: Cat-like rhythmic vibration.
-    *   `purrTick()`: Non-blocking purr pattern update (call in loop).
+    *   `click()`: Short tactile feedback (90% intensity, 60ms pulse).
+    *   `doubleClick()`: Heartbeat pattern - lub-DUB rhythm (82-100% intensity).
+    *   `alarm()`: Urgent alternating left/right pattern (90% intensity).
+    *   `startPurr()` / `stopPurr()`: Cat-like rhythmic vibration (starts at 85% intensity).
+    *   `purrTick()`: Non-blocking purr pattern update (call in loop) - 5-phase cycle with 80-100% intensity.
+*   **Purr Pattern**: 5-phase rhythmic cycle (medium → strong → medium → soft → medium) with varied timing (90-130ms) for natural cat-like feel.
 
 ### 7. Touch Module (`Touch.h` / `Touch.cpp`)
 **Responsibility**: Handles touch/button input with debounce and gesture detection.
@@ -146,7 +158,24 @@ The library contains all hardware modules with a single entry point:
     *   `HOLD_END`: Just released from hold.
 *   **Optional**: Chin touch sensor (compile-time `TOUCH_CHIN_ENABLED`).
 
-### 8. LED Module (`LED.h` / `LED.cpp`)
+### 8. Events Module (`Events.h` / `Events.cpp`)
+**Responsibility**: Central event handler that coordinates touch interactions with haptic and audio feedback.
+
+*   **Dependencies**: `Face`, `Touch`, `Haptics`, `Audio`, `Power`.
+*   **Key Functions**:
+    *   `init()`: Initializes event state.
+    *   `update()`: Processes touch events and triggers appropriate responses (call in loop after `Touch::update()`).
+*   **Event Handling**: All touch interactions trigger both haptic and sound feedback for a more alive, responsive feel.
+*   **Behaviors**:
+    *   Head tap → blink + click haptic + tap sound
+    *   Head hold start → happy eyes + purr haptic + happy sound
+    *   Head hold end → normal eyes + stop purr + content sound
+    *   Chin tap → wink + click haptic + chirp sound
+    *   Chin hold start → closed eyes + purr haptic + purr sound
+    *   Chin hold end → open eyes + stop purr + satisfied sound
+    *   Combo (head + chin) → confused + double-click haptic + surprise beep
+
+### 9. LED Module (`LED.h` / `LED.cpp`)
 **Responsibility**: Controls the WS2812 status LED.
 
 *   **Hardware**: WS2812 NeoPixel (GPIO 48).
@@ -158,14 +187,61 @@ The library contains all hardware modules with a single entry point:
 
 ---
 
+## Main Loop Update Order
+
+**Critical**: The update order in `loop()` is important for proper event handling:
+
+```cpp
+void loop() {
+    // 1. Update sensors and input processing FIRST
+    Touch::update();        // Process touch input, generate events
+    
+    // 2. Handle events (must be after Touch::update)
+    Events::update();       // Process touch events → haptic + sound feedback
+    
+    // 3. Update non-blocking systems
+    Haptics::purrTick();    // Update purr pattern (if active)
+    Motion::update();       // Update motion sensor
+    Power::update();        // Update power management
+    
+    // 4. Update display and animations
+    Face::update();         // Update eye animations
+    Animation::tick();      // Update behavior tree
+}
+```
+
+**Why this order matters:**
+- `Touch::update()` must run before `Events::update()` because Events reads the events that Touch generates.
+- `Haptics::purrTick()` must be called every loop to maintain the non-blocking purr pattern.
+
+---
+
 ## Behaviors
+
+### Touch Interactions (All with Haptic + Sound Feedback)
+
+**Head Touch:**
+- **Tap**: Eye blink + haptic click (90% intensity) + tap sound
+- **Hold Start (Petting)**: Happy eyes + haptic purr starts (85% intensity) + happy sound
+- **Holding**: Continuous purr pattern (80-100% intensity, 5-phase cycle) + occasional blinks
+- **Hold End**: Eyes return to normal + haptic purr stops + content sound
+
+**Chin Touch (Optional):**
+- **Tap**: Wink + haptic click (90% intensity) + chirp sound
+- **Hold Start (Scratching)**: Eyes close + haptic purr starts (85% intensity) + purr sound
+- **Holding**: Continuous purr pattern + eyes open/close rhythmically
+- **Hold End**: Eyes open + haptic purr stops + satisfied sound
+
+**Combo (Head + Chin):**
+- **Both Held**: Confused happy face + haptic double-click heartbeat (82-100% intensity) + surprise beep
 
 ### Petting Behavior
 When the user holds the touch button (simulating petting the bot's head):
 1. Eyes become happy (`eyes->happy = true`).
-2. Haptic purr pattern starts (`Haptics::startPurr()`).
-3. Occasional blinks while being pet.
-4. On release, returns to normal state.
+2. Haptic purr pattern starts (`Haptics::startPurr()`) with happy sound.
+3. Continuous rhythmic purr (5-phase cycle, 80-100% intensity).
+4. Occasional blinks while being pet.
+5. On release, haptic purr stops with content sound, eyes return to normal.
 
 ### Sleep Behavior
 After periods of inactivity:
@@ -345,7 +421,12 @@ void loop() {
         // React to shake
     }
     
+    // IMPORTANT: Touch::update() must be called BEFORE Events::update()
+    // Touch processes input and generates events, Events handles them
     Touch::update();
+    Events::update();  // Handles touch events (haptic + sound feedback)
+    Haptics::purrTick();  // Update non-blocking purr pattern
+    
     Face::update();
 }
 ```
