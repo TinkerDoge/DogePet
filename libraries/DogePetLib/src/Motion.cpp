@@ -2,8 +2,11 @@
 #include "Motion.h"
 #include "mpu6050.h"
 #include "config.h"
+#include "Power.h"  // For wake() integration
+#include "Events.h"  // For motion event callback
 #include <Wire.h>
 #include <math.h>
+#include <cstdint>  // For intptr_t
 
 // Global calibration offsets (used by mpu6050.h inline functions)
 int32_t mpu_accel_off_x = 0, mpu_accel_off_y = 0, mpu_accel_off_z = 0;
@@ -18,6 +21,10 @@ bool gMotionDebug = ENABLE_MOTION_DEBUG;
 
 // Static instance
 Motion Motion::_instance;
+
+// Static logging state
+static uint32_t lastMotionLogMs = 0;
+static bool motionEventDebugEnabled = true;
 
 // ---- Static API ----
 void Motion::init() {
@@ -40,6 +47,17 @@ float Motion::getGyroMag() {
     return _instance._lpfG;
 }
 
+void Motion::logMotionStatus() {
+    _instance.logStatus();
+}
+
+void Motion::setEventDebug(bool enabled) {
+    motionEventDebugEnabled = enabled;
+    if (enabled) {
+        Serial.println("{\"status\":\"info\",\"msg\":\"Motion event logging enabled\"}");
+    }
+}
+
 // ---- Constructors ----
 Motion::Motion()
     : Motion(I2C_SDA, I2C_SCL, MPU6050_ADDR) {}
@@ -55,7 +73,7 @@ Motion::Motion(int sdaPin, int sclPin, uint8_t mpuAddr)
       _stillGThresh(STILL_G_THRESH), 
       _az1gTol(AZ_1G_TOL),
       _moving(false), _shaking(false), _furiousShaking(false),
-      _shakeStartMs(0), _furiousStartMs(0), _lastUpdateMs(0), _lastTapMs(0),
+      _shakeStartMs(0), _furiousStartMs(0), _lastUpdateMs(0), _lastTapMs(0), _lastEventMs(0),
       _wasStill(true) {}
 
 // ---- Lifecycle ----
@@ -148,6 +166,20 @@ void Motion::calibrateInstance() {
     Serial.println("{\"status\":\"ok\",\"msg\":\"Calibration complete\"}");
 }
 
+void Motion::logStatus() {
+    uint32_t now = millis();
+    // Log motion status at 5-second intervals (like Power logs every 30s, this is more frequent for motion)
+    if (now - lastMotionLogMs >= 5000) {
+        lastMotionLogMs = now;
+        Serial.printf("{\"status\":\"data\",\"type\":\"motion\",\"moving\":%s,\"shaking\":%s,\"gyro\":%.1f,\"accelZ\":%.3f,\"lastEvent\":%lu}\n",
+                      _instance._moving ? "true" : "false",
+                      _instance._shaking ? "true" : "false",
+                      _instance._lpfG,
+                      _instance._lpfAz,
+                      now - _instance._lastEventMs);
+    }
+}
+
 // ---- Main update (instance method) ----
 Motion::Event Motion::updateInstance() {
     const uint32_t now = millis();
@@ -187,7 +219,12 @@ Motion::Event Motion::updateInstance() {
     bool isStillNow = !_moving;
     if (!_wasStill && isStillNow) {
         _wasStill = true;
+        _lastEventMs = now;
         MD_EVENT("STILL");
+        if (motionEventDebugEnabled) {
+            Serial.println("{\"status\":\"event\",\"type\":\"motion_still\"}");
+        }
+        Events::onMotionEvent((void*)(intptr_t)5);  // Event code 5 = Still
         if (_handler) _handler(Event::Still);
         return Event::Still;
     }
@@ -203,7 +240,13 @@ Motion::Event Motion::updateInstance() {
             MD_PRINT("furious-start g=%.1f\n", _lpfG);
         }
         if (now - _furiousStartMs > FURIOUS_MS) {
+            _lastEventMs = now;
             MD_EVENT("FURIOUS_SHAKE");
+            if (motionEventDebugEnabled) {
+                Serial.println("{\"status\":\"event\",\"type\":\"furious_shake\"}");
+            }
+            Events::onMotionEvent((void*)(intptr_t)3);  // Event code 3 = FuriousShake
+            Power::onMotion();  // Wake up if sleeping
             if (_handler) _handler(Event::FuriousShake);
             return Event::FuriousShake;
         }
@@ -216,7 +259,13 @@ Motion::Event Motion::updateInstance() {
             MD_PRINT("shake-start g=%.1f\n", _lpfG);
         }
         if (now - _shakeStartMs > SHAKE_MS) {
+            _lastEventMs = now;
             MD_EVENT("SHAKE");
+            if (motionEventDebugEnabled) {
+                Serial.println("{\"status\":\"event\",\"type\":\"shake\"}");
+            }
+            Events::onMotionEvent((void*)(intptr_t)2);  // Event code 2 = Shake
+            Power::onMotion();  // Wake up if sleeping
             if (_handler) _handler(Event::Shake);
             return Event::Shake;
         }
@@ -229,7 +278,13 @@ Motion::Event Motion::updateInstance() {
     // 4) Tap detection (quick gyro spike)
     if (_lpfG > _tapThresh && now - _lastTapMs > TAP_COOLDOWN_MS) {
         _lastTapMs = now;
+        _lastEventMs = now;
         MD_EVENT("TAP");
+        if (motionEventDebugEnabled) {
+            Serial.println("{\"status\":\"event\",\"type\":\"motion_tap\"}");
+        }
+        Events::onMotionEvent((void*)(intptr_t)4);  // Event code 4 = Tap
+        Power::onMotion();  // Wake up if sleeping
         if (_handler) _handler(Event::Tap);
         return Event::Tap;
     }
@@ -241,7 +296,13 @@ Motion::Event Motion::updateInstance() {
     if (fabsf(tiltX) > _tiltDeg || fabsf(tiltY) > _tiltDeg) {
         // Only report tilt if not already shaking
         if (!_shaking && !_furiousShaking) {
+            _lastEventMs = now;
             MD_EVENT("TILT");
+            if (motionEventDebugEnabled) {
+                Serial.printf("{\"status\":\"event\",\"type\":\"tilt\",\"tiltX\":%.1f,\"tiltY\":%.1f}\n", tiltX, tiltY);
+            }
+            Events::onMotionEvent((void*)(intptr_t)1);  // Event code 1 = Tilt
+            Power::onMotion();  // Wake up if sleeping
             if (_handler) _handler(Event::Tilt);
             return Event::Tilt;
         }

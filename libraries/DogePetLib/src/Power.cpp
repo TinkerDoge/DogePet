@@ -103,7 +103,8 @@ void Power::logStatus() {
 
 void Power::onActivity() {
     lastActivityMs = millis();
-    if (state != PowerState::ACTIVE) {
+    // Only wake from DIM mode, not from SLEEP
+    if (state == PowerState::DIM) {
         wake();
     }
 }
@@ -118,6 +119,14 @@ void Power::onLoudNoise() {
     onActivity();
 }
 
+void Power::forceWake() {
+    // Force wake from any state (for combo touch and furious shake)
+    lastActivityMs = millis();
+    if (state != PowerState::ACTIVE) {
+        wake();
+    }
+}
+
 void Power::update() {
     uint32_t now = millis();
     uint32_t idleTime = now - lastActivityMs;
@@ -125,12 +134,9 @@ void Power::update() {
     // Update battery reading periodically (uses longer interval when sleeping)
     updateBatteryReading();
     
-    // Log battery status at configured interval (longer when sleeping)
-    if (batteryInitialized) {
-        uint32_t logInterval = (state == PowerState::SLEEPING) ? 
-                               VBAT_LOG_INTERVAL_SLEEP_MS : 
-                               VBAT_LOG_INTERVAL_MS;
-        if (now - lastVbatLogMs >= logInterval) {
+    // Log battery status at configured interval (only in ACTIVE and DIM modes, not SLEEP)
+    if (batteryInitialized && state != PowerState::SLEEPING) {
+        if (now - lastVbatLogMs >= VBAT_LOG_INTERVAL_MS) {
             logStatus();
             lastVbatLogMs = now;
         }

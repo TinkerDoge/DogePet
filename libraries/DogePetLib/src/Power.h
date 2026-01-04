@@ -21,9 +21,10 @@ public:
     static void logStatus();
     
     // Activity tracking (call these to keep awake)
-    static void onActivity();
-    static void onMotion();
-    static void onLoudNoise();
+    static void onActivity();      // Wakes from DIM, not from SLEEP
+    static void onMotion();         // Wakes from DIM, not from SLEEP
+    static void onLoudNoise();      // Wakes from DIM, not from SLEEP
+    static void forceWake();        // Wakes from any state (for combo touch and furious shake)
     
     // State control
     static PowerState getState();

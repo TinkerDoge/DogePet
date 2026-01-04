@@ -222,6 +222,7 @@ void loop() {
   
   // Update Modules
   Motion::update();
+  Motion::logMotionStatus();  // Log motion status periodically
   Power::update();
   
   // Update touch sensors FIRST (must be before Events::update)

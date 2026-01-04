@@ -85,10 +85,10 @@ void Events::update() {
             eyes->setHFlicker(true, 3);
             Haptics::doubleClick();
             Audio::surpriseBeep();
+            Power::forceWake();  // Force wake from any state
             Serial.println("{\"status\":\"event\",\"type\":\"combo_confused\"}");
             comboConfusedTriggered = true;
         }
-        Power::onActivity();
     } else {
         if (comboConfusedTriggered) {
             eyes->confused = false;
@@ -149,4 +149,59 @@ void Events::update() {
             break;
     }
     #endif
+}
+// ============================================================================
+// MOTION EVENT HANDLER
+// ============================================================================
+void Events::onMotionEvent(void* eventPtr) {
+    // Motion events trigger behavioral reactions similar to touch
+    // Event codes: 0=None, 1=Tilt, 2=Shake, 3=FuriousShake, 4=Tap, 5=Still
+    int event = (int)(intptr_t)eventPtr;
+    
+    roboEyes* eyes = Face::getEyes();
+    if (!eyes) return;
+    
+    switch (event) {
+        case 1:  // Tilt - curious/interested reaction
+            eyes->curious = true;
+            Haptics::click();
+            Audio::tapSound();
+            Serial.println("{\"status\":\"event\",\"type\":\"motion_tilt\",\"reaction\":\"curious\"}");
+            break;
+            
+        case 2:  // Shake - playful surprise
+            eyes->happy = true;
+            eyes->blink();
+            Haptics::doubleClick();
+            Audio::surpriseBeep();
+            Serial.println("{\"status\":\"event\",\"type\":\"motion_shake\",\"reaction\":\"playful\"}");
+            break;
+            
+        case 3:  // FuriousShake - startled/jiggling reaction with confused animation
+            eyes->angry = true;
+            eyes->sweat = true;
+            eyes->confused = true;  // Add jiggling confused animation
+            Haptics::alarm();
+            Audio::yawn();  // Surprised yawn-like sound
+            Power::forceWake();  // Force wake from any state
+            Serial.println("{\"status\":\"event\",\"type\":\"motion_furious_shake\",\"reaction\":\"startled\"}");
+            break;
+            
+        case 4:  // Motion Tap - quick attention
+            eyes->blink();
+            Haptics::click();
+            Audio::chirp();
+            Serial.println("{\"status\":\"event\",\"type\":\"motion_tap\",\"reaction\":\"attention\"}");
+            break;
+            
+        case 5:  // Still - relax, return to normal
+            eyes->angry = false;
+            eyes->curious = false;
+            eyes->sweat = false;
+            Serial.println("{\"status\":\"event\",\"type\":\"motion_still\",\"reaction\":\"relax\"}");
+            break;
+            
+        default:
+            break;
+    }
 }

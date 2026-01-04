@@ -37,6 +37,10 @@ public:
     static bool isReady();          // Check if initialized
     static void calibrate();        // Recalibrate sensor
     static float getGyroMag();      // Get gyro magnitude (dps)
+    
+    // Event logging and debugging
+    static void logMotionStatus();  // Log current motion state periodically
+    static void setEventDebug(bool enabled);  // Toggle motion event logging
 
     // =========================================================================
     // INSTANCE API
@@ -86,10 +90,14 @@ public:
     
     // Recalibrate (device must be still) - instance method
     void calibrateInstance();
+    
+    // Get last motion event time for debugging
+    uint32_t getLastEventMs() const { return _lastEventMs; }
 
 private:
     void readRaw(float &ax, float &ay, float &az, float &gx, float &gy, float &gz);
     float lpf(float prev, float current, float alpha = 0.5f);
+    void logStatus();  // Log motion status to serial
 
     // Pin and address
     int _sdaPin, _sclPin;
@@ -115,6 +123,7 @@ private:
     uint32_t _furiousStartMs;
     uint32_t _lastUpdateMs;
     uint32_t _lastTapMs;
+    uint32_t _lastEventMs;    // Track last motion event for logging
     bool _wasStill;
 
     // Callback

@@ -61,7 +61,7 @@ The library contains all hardware modules with a single entry point:
 *   **Settings Integration**: Loads and applies Settings for eye size, spacing, auto-blink, idle animation, contrast, and mood persistence.
 
 ### 2. Motion Module (`Motion.h` / `Motion.cpp`)
-**Responsibility**: High-level motion interpreter with event detection.
+**Responsibility**: High-level motion interpreter with event detection and activity logging.
 
 *   **Hardware**: MPU6050/MPU6500 (I2C 0x68).
 *   **Approach**: Simple I2C polling with noise-gated low-pass filtering.
@@ -70,17 +70,26 @@ The library contains all hardware modules with a single entry point:
     *   `Motion::update()`: Poll sensor, return event.
     *   `Motion::isReady()`: Check if initialized.
     *   `Motion::calibrate()`: Recalibrate sensor.
-*   **Motion Events**:
+    *   `Motion::logMotionStatus()`: Log current motion state to serial (call in main loop).
+    *   `Motion::setEventDebug(bool)`: Enable/disable motion event JSON logging.
+*   **Motion Events** (all wake the bot if sleeping):
     *   `None`: No significant motion.
-    *   `Tilt`: Gentle tilt beyond threshold.
-    *   `Shake`: Brief shake detected.
-    *   `FuriousShake`: Sustained hard shake.
-    *   `Tap`: Single tap detected.
-    *   `Still`: Device returned to stationary.
+    *   `Tilt`: Gentle tilt beyond threshold → Logs `{"status":"event","type":"tilt",...}`.
+    *   `Shake`: Brief shake detected → Logs `{"status":"event","type":"shake"}` + wakes.
+    *   `FuriousShake`: Sustained hard shake → Logs `{"status":"event","type":"furious_shake"}` + wakes.
+    *   `Tap`: Single tap detected → Logs `{"status":"event","type":"motion_tap"}` + wakes.
+    *   `Still`: Device returned to stationary → Logs `{"status":"event","type":"motion_still"}`.
+*   **Power Integration**:
+    *   All motion events call `Power::onMotion()` to wake from sleep/dim mode.
+    *   Motion provides activity tracking similar to touch and noise.
+*   **Periodic Logging** (every 5 seconds):
+    *   Logs: `{"status":"data","type":"motion","moving":bool,"shaking":bool,"gyro":float,"accelZ":float,"lastEvent":ms}`.
+    *   Allows monitoring of motion state without needing debug flags.
 *   **Configuration** (from `config.h`):
     *   `TILT_THRESHOLD_DEG`: Tilt detection (default 20°).
     *   `SHAKE_ANGRY_DPS`: Shake threshold (default 200 dps).
     *   `SHAKE_FURIOUS_DPS`: Furious shake (default 280 dps).
+    *   `IMU_TICK_MS`: Sensor polling interval (default 20ms).
 
 ### 3. Audio Module (`Audio.h` / `Audio.cpp`)
 **Responsibility**: Manages the I2S subsystem for both Input (Microphone) and Output (Amplifier).
@@ -128,7 +137,8 @@ The library contains all hardware modules with a single entry point:
 *   **Key Functions**:
     *   `init()`: Configures ADC (12-bit, 11dB attenuation) and initializes state. Reads battery once at startup.
     *   `update()`: Updates battery readings, logs status periodically, and manages power state transitions (call in loop).
-    *   `onActivity()` / `onMotion()` / `onLoudNoise()`: Activity tracking for sleep/wake.
+    *   `onActivity()` / `onMotion()` / `onLoudNoise()`: Activity tracking - only wakes from DIM mode (not SLEEP).
+    *   `forceWake()`: Force wake from any state (ACTIVE, DIM, or SLEEP) - used for combo touch and furious shake.
     *   `isSleeping()`: Returns true if in sleep mode.
     *   `wake()` / `sleep()`: Force state changes.
 *   **Power States**:
@@ -141,7 +151,8 @@ The library contains all hardware modules with a single entry point:
     *   Voltage calculation: `V = (ADC_raw / 4095) * 3.3V * 2.0 * VBAT_CAL`
     *   Percentage: Linear interpolation between `VBAT_MIN_V` and `VBAT_MAX_V`.
 *   **Logging**:
-    *   Automatic JSON logging every `VBAT_LOG_INTERVAL_MS` (30 seconds default).
+    *   Automatic JSON logging every `VBAT_LOG_INTERVAL_MS` (30 seconds) during ACTIVE and DIM modes.
+    *   In SLEEP mode: battery is read but not logged (reduced serial output).
     *   Format: `{"status":"data","type":"power","voltage":3.85,"percent":72,"state":0}`
 *   **Callbacks**: `onSleepCallback`, `onWakeCallback`, `onDimCallback`.
 
@@ -222,23 +233,26 @@ The library contains all hardware modules with a single entry point:
 ```cpp
 void loop() {
     // 1. Update sensors and input processing FIRST
-    Touch::update();        // Process touch input, generate events
+    Touch::update();           // Process touch input, generate events
     
     // 2. Handle events (must be after Touch::update)
-    Events::update();       // Process touch events → haptic + sound feedback + face expressions
+    Events::update();          // Process touch events → haptic + sound feedback + face expressions
     
     // 3. Update non-blocking systems
-    Power::update();        // Update power state
-    Motion::update();       // Update motion sensor
-    Haptics::purrTick();    // Update ALL patterns (tap, double-tap, alarm, purr) - NON-BLOCKING
-    Face::update();         // Update face (animations)
-    Animation::tick();      // Update behavior tree
+    Motion::update();          // Update motion sensor, detect shake/tilt/tap/still
+    Motion::logMotionStatus(); // Log motion state periodically (every 5s)
+    Power::update();           // Update power state and battery monitoring
+    Haptics::purrTick();       // Update ALL patterns (tap, double-tap, alarm, purr) - NON-BLOCKING
+    Face::update();            // Update face (animations)
+    Animation::tick();         // Update behavior tree
 }
 ```
 
 **Why this order matters:**
 - `Touch::update()` must run before `Events::update()` because Events reads the events that Touch generates.
-- `Haptics::purrTick()` (now `patternTick()`) must be called every loop to execute non-blocking patterns without stalling the main loop.
+- `Motion::update()` runs before `Power::update()` to ensure motion-based wake events are processed.
+- `Motion::logMotionStatus()` has minimal overhead (only logs every 5 seconds).
+- `Haptics::purrTick()` must be called every loop to execute non-blocking patterns without stalling the main loop.
 
 ---
 
@@ -260,6 +274,7 @@ void loop() {
 
 **Combo (Head + Chin):**
 - **Both Held**: Confused expression + horizontal eye flicker + haptic double-click heartbeat (85-100% intensity) + surprise beep
+- Forces wake from SLEEP mode (only combo action strong enough to wake from sleep)
 
 ### Petting Behavior
 When the user holds the touch button (simulating petting the bot's head):
@@ -269,11 +284,26 @@ When the user holds the touch button (simulating petting the bot's head):
 4. Occasional blinks while being pet.
 5. On release, haptic purr stops with content sound, eyes return to normal.
 
-### Sleep Behavior
-After periods of inactivity:
-1. **1 minute idle**: Enter DIM mode (tired eyes, slower blinks).
-2. **2 minutes idle**: Enter SLEEP mode (closed eyes, Zzz animation).
-3. Any touch, motion, or loud noise triggers wake.
+### Motion Interactions (All with Haptic + Sound Feedback)
+
+**Motion Events:**
+- **Tilt**: Gentle tilt beyond threshold → Curious eyes + click haptic + tap sound (wakes from DIM only)
+- **Shake**: Brief shake detected → Happy eyes + blink + double-click haptic + surprise beep (wakes from DIM only)
+- **Furious Shake**: Sustained hard shake → Angry eyes + sweat + confused animation (jiggling) + alarm haptic + yawn sound (forces wake from ANY state including SLEEP)
+- **Tap**: Single tap detected → Blink + click haptic + chirp sound (wakes from DIM only)
+- **Still**: Device returned to stationary → Eyes return to normal
+
+### Power State & Wake Logic
+
+**DIM Mode (1 minute idle):**
+- Tired eyes, slower blinks, dimmed screen
+- Wakes with: Any touch tap, chin tap, motion tap/tilt/shake (via `onActivity()` / `onMotion()`)
+
+**SLEEP Mode (2 minutes idle):**
+- Closed eyes with Zzz animation, minimal CPU/display updates
+- Wakes ONLY with: Combo touch (head + chin simultaneous) OR motion furious shake (via `forceWake()`)
+- Normal touch/motion events do NOT wake from sleep
+- Battery reading continues every 10s, but logging disabled (reduced power consumption)
 
 ---
 
