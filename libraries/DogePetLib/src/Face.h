@@ -7,40 +7,50 @@
 #include "FluxGarage_RoboEyes.h"
 #include "config.h"
 
-// Display modes for controlling what's shown
+// Forward declaration for Settings
+class Settings;
+
+// Display modes - what should be shown on screen
 enum class DisplayMode {
-    Eyes,       // Normal RoboEyes animation
+    Eyes,       // RoboEyes animation (default)
     Sleep,      // Sleep face with Zzz
-    Custom,     // User-controlled (eyes paused)
-    Toast,      // Temporary message overlay
-    Off         // Display cleared/off
+    Toast,      // Toast notification overlay
+    Custom,     // Custom content (user draws directly)
+    Off         // Display off/blank
 };
 
 class Face {
 public:
     static void init();
-    static void showBootScreen(const char* msg);
-    static void updateProgressBar(int percent, const char* status);
-    static void playLineAnimation();
-    static void update();  // Call in loop
+    static void update();  // Call in loop - respects current mode
     
     // Display mode control
     static void setMode(DisplayMode mode);
     static DisplayMode getMode();
-    static void enableEyes(bool enable);  // Convenience toggle
+    
+    // Eyes control - quick toggle
+    static void enableEyes(bool enable);
     static bool areEyesEnabled();
+    
+    // Apply settings from Settings module (dynamic, no reboot)
+    static void applySettings();
+    
+    // Boot sequence helpers
+    static void showBootScreen(const char* msg);
+    static void updateProgressBar(int percent, const char* status);
+    static void playLineAnimation();
     
     // Power state faces
     static void showSleepFace();
     static void showDimFace();
     static void showActiveFace();
     
-    // Toast system (temporary overlay)
-    static void showToast(const char* text, uint32_t durationMs = 2000);
-    static bool isToastActive();
-    
     // Test helpers
+    static void testExpression(const char* name);
     static void showTestPattern();
+    static void refresh();  // Call display.display()
+    
+    // Display utilities
     static void clear();
     static void showText(const char* text);
     
@@ -52,11 +62,9 @@ private:
     static Adafruit_SH1106G display;
     static roboEyes eyes;
     static DisplayMode currentMode;
-    static DisplayMode previousMode;  // For restoring after toast
+    static bool eyesEnabled;
     static uint32_t sleepAnimMs;
-    static char toastText[64];
-    static uint32_t toastEndMs;
     
+    // Internal draw methods
     static void drawSleepFace();
-    static void drawToast();
 };

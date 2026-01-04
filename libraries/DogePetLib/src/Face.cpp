@@ -1,14 +1,13 @@
 // Face.cpp - Display and eye animation management
 #include "Face.h"
+#include "Settings.h"
 
 // Define static members
 Adafruit_SH1106G Face::display(SCREEN_W, SCREEN_H, &Wire, OLED_RESET);
 roboEyes Face::eyes(Face::display);
 DisplayMode Face::currentMode = DisplayMode::Eyes;
-DisplayMode Face::previousMode = DisplayMode::Eyes;
+bool Face::eyesEnabled = true;
 uint32_t Face::sleepAnimMs = 0;
-char Face::toastText[64] = {0};
-uint32_t Face::toastEndMs = 0;
 
 void Face::init() {
     // Note: Wire.begin() should be called in setup() before this
@@ -18,25 +17,67 @@ void Face::init() {
         return;
     }
     
+    // Apply initial settings from Settings module
+    display.setContrast(Settings::face.contrast);
     display.clearDisplay();
     display.setTextColor(SH110X_WHITE);
     display.setTextSize(1);
     display.display();
     
-    // Initialize Eyes (but don't draw yet)
+    // Initialize Eyes with Settings (loaded from NVS or defaults)
     eyes.begin(SCREEN_W, SCREEN_H, 50);
-    eyes.setWidth(EYE_WIDTH, EYE_WIDTH);
-    eyes.setHeight(EYE_HEIGHT, EYE_HEIGHT);
-    eyes.setBorderradius(EYE_BORDER_RADIUS, EYE_BORDER_RADIUS);
-    eyes.setSpacebetween(EYE_SPACING);
-    eyes.setAutoblinker(false, 3, 4); // Off during boot
-    eyes.setIdleMode(false, 4, 5);    // Off during boot
+    applySettings();  // Apply face settings
     
-    currentMode = DisplayMode::Custom;  // Start in custom mode for boot sequence
+    currentMode = DisplayMode::Eyes;
+    eyesEnabled = true;
+    
+    Serial.println("{\"status\":\"info\",\"msg\":\"Face Init\"}");
+}
+
+// ============================================================================
+// Apply Settings from Settings module (dynamic, no reboot needed)
+// ============================================================================
+
+void Face::applySettings() {
+    eyes.setWidth(Settings::face.width, Settings::face.width);
+    eyes.setHeight(Settings::face.height, Settings::face.height);
+    eyes.setBorderradius(Settings::face.radius, Settings::face.radius);
+    eyes.setSpacebetween(Settings::face.spacing);
+    eyes.setAutoblinker(Settings::face.autoBlink, Settings::face.blinkInterval, BLINK_VARIATION);
+    eyes.setIdleMode(Settings::face.idleMode, Settings::face.idleInterval, IDLE_VARIATION);
+    display.setContrast(Settings::face.contrast);
+    Serial.println("{\"status\":\"info\",\"msg\":\"Face settings applied\"}");
+}
+
+// ============================================================================
+// Display Mode Control
+// ============================================================================
+
+void Face::setMode(DisplayMode mode) {
+    currentMode = mode;
+    
+    // When switching modes, clear display first
+    if (mode != DisplayMode::Eyes) {
+        display.clearDisplay();
+    }
+}
+
+DisplayMode Face::getMode() {
+    return currentMode;
+}
+
+void Face::enableEyes(bool enable) {
+    eyesEnabled = enable;
+    if (enable) {
+        currentMode = DisplayMode::Eyes;
+    }
+}
+
+bool Face::areEyesEnabled() {
+    return eyesEnabled && (currentMode == DisplayMode::Eyes);
 }
 
 void Face::showBootScreen(const char* msg) {
-    setMode(DisplayMode::Custom);
     display.clearDisplay();
     display.setCursor(0, 0);
     display.println("DogeBot");
@@ -71,47 +112,15 @@ void Face::playLineAnimation() {
 }
 
 // ============================================================================
-// Display Mode Control
-// ============================================================================
-
-void Face::setMode(DisplayMode mode) {
-    if (mode == currentMode) return;
-    
-    previousMode = currentMode;
-    currentMode = mode;
-    
-    Serial.printf("{\"status\":\"info\",\"msg\":\"Face mode: %d\"}\n", (int)mode);
-}
-
-DisplayMode Face::getMode() {
-    return currentMode;
-}
-
-void Face::enableEyes(bool enable) {
-    if (enable) {
-        setMode(DisplayMode::Eyes);
-    } else {
-        setMode(DisplayMode::Custom);
-    }
-}
-
-bool Face::areEyesEnabled() {
-    return currentMode == DisplayMode::Eyes;
-}
-
-// ============================================================================
-// Main Update - Only draws based on current mode
+// Main Update - respects current display mode
 // ============================================================================
 
 void Face::update() {
-    // Handle toast timeout
-    if (currentMode == DisplayMode::Toast && millis() >= toastEndMs) {
-        currentMode = previousMode;  // Restore previous mode
-    }
-    
     switch (currentMode) {
         case DisplayMode::Eyes:
-            eyes.update();  // RoboEyes handles its own display
+            if (eyesEnabled) {
+                eyes.update();  // RoboEyes handles its own display
+            }
             break;
             
         case DisplayMode::Sleep:
@@ -119,72 +128,29 @@ void Face::update() {
             break;
             
         case DisplayMode::Toast:
-            drawToast();
+            // Toast mode - don't clear, let toast system handle it
+            // Just skip eyes update
             break;
             
         case DisplayMode::Custom:
-            // User controls display directly - do nothing
+            // Custom mode - user draws directly, we do nothing
             break;
             
         case DisplayMode::Off:
-            // Display is off - do nothing
+            // Display off - do nothing
             break;
     }
 }
-
-// ============================================================================
-// Toast System
-// ============================================================================
-
-void Face::showToast(const char* text, uint32_t durationMs) {
-    strncpy(toastText, text, sizeof(toastText) - 1);
-    toastText[sizeof(toastText) - 1] = '\0';
-    toastEndMs = millis() + durationMs;
-    
-    if (currentMode != DisplayMode::Toast) {
-        previousMode = currentMode;
-    }
-    currentMode = DisplayMode::Toast;
-}
-
-bool Face::isToastActive() {
-    return currentMode == DisplayMode::Toast;
-}
-
-void Face::drawToast() {
-    display.clearDisplay();
-    
-    // Draw centered text with border
-    int16_t x1, y1;
-    uint16_t w, h;
-    display.setTextSize(1);
-    display.getTextBounds(toastText, 0, 0, &x1, &y1, &w, &h);
-    
-    int boxPad = 4;
-    int boxX = (SCREEN_W - w - boxPad*2) / 2;
-    int boxY = (SCREEN_H - h - boxPad*2) / 2;
-    
-    display.fillRoundRect(boxX, boxY, w + boxPad*2, h + boxPad*2, 3, SH110X_WHITE);
-    display.setTextColor(SH110X_BLACK);
-    display.setCursor(boxX + boxPad, boxY + boxPad);
-    display.print(toastText);
-    display.setTextColor(SH110X_WHITE);  // Reset
-    
-    display.display();
-}
-
-// ============================================================================
-// Sleep Face
-// ============================================================================
 
 void Face::drawSleepFace() {
     display.clearDisplay();
     
-    // Draw closed eyes (horizontal lines)
+    // Draw closed eyes (horizontal lines) using Settings
     int eyeY = SCREEN_H / 2;
-    int eyeW = EYE_WIDTH;
-    int leftX = (SCREEN_W / 2) - EYE_SPACING/2 - eyeW;
-    int rightX = (SCREEN_W / 2) + EYE_SPACING/2;
+    int eyeW = Settings::face.width;
+    int spacing = Settings::face.spacing;
+    int leftX = (SCREEN_W / 2) - spacing/2 - eyeW;
+    int rightX = (SCREEN_W / 2) + spacing/2;
     
     display.drawLine(leftX, eyeY, leftX + eyeW, eyeY, SH110X_WHITE);
     display.drawLine(leftX + 2, eyeY - 1, leftX + eyeW - 2, eyeY - 1, SH110X_WHITE);
@@ -208,74 +174,99 @@ void Face::drawSleepFace() {
     display.display();
 }
 
-// ============================================================================
-// Power State Faces
-// ============================================================================
-
-void Face::showSleepFace() {
-    sleepAnimMs = millis();
-    eyes.setAutoblinker(false, 3, 4);
-    eyes.setIdleMode(false, 4, 5);
-    eyes.tired = true;
-    eyes.close();
-    setMode(DisplayMode::Sleep);
-    Serial.println("{\"status\":\"info\",\"msg\":\"Face: Sleep mode\"}");
+void Face::testExpression(const char* name) {
+    if (strcmp(name, "curious") == 0) {
+        showActiveFace();
+        // Trigger curious state in RoboEyes
+        eyes.setCuriosity(true);
+        // Reset after some time? For now, just set it.
+    } else if (strcmp(name, "confused") == 0) {
+        showActiveFace();
+        eyes.anim_confused();
+    } else if (strcmp(name, "laugh") == 0) {
+        showActiveFace();
+        eyes.anim_laugh();
+    } else if (strcmp(name, "sleep") == 0) {
+        showSleepFace();
+    } else if (strcmp(name, "happy") == 0) {
+        showActiveFace();
+        eyes.setMood(HAPPY);
+    } else if (strcmp(name, "toast") == 0) {
+        setMode(DisplayMode::Toast);
+        display.clearDisplay();
+        display.setCursor(10, 25);
+        display.println("Hello World!");
+        display.display();
+        // Note: No auto-timeout logic here yet, blocks eyes
+    } else if (strcmp(name, "off") == 0) {
+        setMode(DisplayMode::Off);
+        display.clearDisplay();
+        display.display();
+    } else {
+        // Default reset
+        showActiveFace();
+        eyes.setCuriosity(false);
+        eyes.setMood(DEFAULT);
+    }
 }
-
-void Face::showDimFace() {
-    eyes.tired = true;
-    eyes.open();
-    eyes.setAutoblinker(true, 6, 3);
-    eyes.setIdleMode(false, 4, 5);
-    setMode(DisplayMode::Eyes);
-    Serial.println("{\"status\":\"info\",\"msg\":\"Face: Dim mode\"}");
-}
-
-void Face::showActiveFace() {
-    eyes.tired = false;
-    eyes.open();
-    eyes.setAutoblinker(EYE_AUTO_BLINK, BLINK_INTERVAL, BLINK_VARIATION);
-    eyes.setIdleMode(EYE_IDLE_MODE, IDLE_INTERVAL, IDLE_VARIATION);
-    setMode(DisplayMode::Eyes);
-    Serial.println("{\"status\":\"info\",\"msg\":\"Face: Active mode\"}");
-}
-
-// ============================================================================
-// Accessors
-// ============================================================================
-
-roboEyes* Face::getEyes() { return &eyes; }
-Adafruit_SH1106G* Face::getDisplay() { return &display; }
-
-// ============================================================================
-// Test Helpers
-// ============================================================================
 
 void Face::showTestPattern() {
-    setMode(DisplayMode::Custom);
     display.clearDisplay();
     for (int y = 0; y < 64; y += 8) {
         for (int x = 0; x < 128; x += 8) {
             if ((x + y) % 16 == 0) display.fillRect(x, y, 8, 8, SH110X_WHITE);
         }
     }
-    display.drawRect(0, 0, 128, 64, SH110X_WHITE);
-    display.drawLine(64, 0, 64, 63, SH110X_WHITE);
-    display.drawLine(0, 32, 127, 32, SH110X_WHITE);
     display.display();
 }
 
 void Face::clear() {
-    setMode(DisplayMode::Custom);
     display.clearDisplay();
     display.display();
 }
 
 void Face::showText(const char* text) {
-    setMode(DisplayMode::Custom);
     display.clearDisplay();
     display.setCursor(0, 0);
-    display.setTextSize(1);
     display.println(text);
     display.display();
+}
+
+void Face::showSleepFace() {
+    currentMode = DisplayMode::Sleep;
+    sleepAnimMs = millis();
+    eyesEnabled = false;
+    eyes.setAutoblinker(false);
+    eyes.setIdleMode(false);
+    eyes.tired = true;
+    eyes.close();
+    Serial.println("{\"status\":\"info\",\"msg\":\"Face: Sleep mode\"}");
+}
+
+void Face::showDimFace() {
+    currentMode = DisplayMode::Eyes;
+    eyesEnabled = true;
+    eyes.tired = true;
+    eyes.open();
+    eyes.setAutoblinker(true, 8, 4);
+    eyes.setIdleMode(false);
+    Serial.println("{\"status\":\"info\",\"msg\":\"Face: Dim mode\"}");
+}
+
+void Face::showActiveFace() {
+    currentMode = DisplayMode::Eyes;
+    eyesEnabled = true;
+    eyes.tired = false;
+    applySettings();  // Apply current face settings from Settings module
+    eyes.open();
+    Serial.println("{\"status\":\"info\",\"msg\":\"Face: Active mode\"}");
+}
+
+// Accessor methods
+roboEyes* Face::getEyes() {
+    return &eyes;
+}
+
+Adafruit_SH1106G* Face::getDisplay() {
+    return &display;
 }

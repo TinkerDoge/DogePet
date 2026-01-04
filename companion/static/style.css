@@ -17,23 +17,13 @@
     box-sizing: border-box;
 }
 
-/* CRT Scanline Overlay */
-body::before {
-    content: " ";
-    display: block;
-    position: absolute;
-    top: 0; left: 0; bottom: 0; right: 0;
-    background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), 
-                linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
-    z-index: 100;
-    background-size: 100% 3px, 3px 100%;
-    pointer-events: none;
-}
-
+/* Halftone Dot Pattern - applied as background to avoid overlay issues */
 body {
     margin: 0;
     padding: 20px;
     background-color: var(--bg-color);
+    background-image: radial-gradient(rgba(0, 0, 0, 0.4) 1px, transparent 1px);
+    background-size: 4px 4px;
     color: var(--text-color);
     font-family: 'Space Mono', monospace;
     height: 100vh;
@@ -49,6 +39,10 @@ body {
     max-width: 95%; /* Responsive width */
     height: 90vh;
     background: var(--window-bg);
+    /* Subtle pattern for window too */
+    background-image: radial-gradient(rgba(0, 0, 0, 0.2) 1px, transparent 1px);
+    background-size: 4px 4px;
+    
     border: 3px solid var(--border-color);
     border-radius: 8px; /* Slightly tighter radius */
     box-shadow: 0 0 20px var(--shadow-color);
@@ -363,4 +357,19 @@ span[id^="val_"] {
     box-shadow: 0 0 10px rgba(136, 136, 136, 0.2);
 }
 
-.hidden { display: none; }
+
+/* Scrollbar */
+::-webkit-scrollbar {
+    width: 10px;
+}
+::-webkit-scrollbar-track {
+    background: #1a1b1d;
+    border-left: 1px solid var(--border-color);
+}
+::-webkit-scrollbar-thumb {
+    background: #444;
+    border: 1px solid var(--border-color);
+}
+::-webkit-scrollbar-thumb:hover {
+    background: var(--accent-amber);
+}

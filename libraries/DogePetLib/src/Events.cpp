@@ -39,6 +39,7 @@ void Events::update() {
     switch (headEvent) {
         case TouchEvent::TAP:
             eyes->blink();
+            Haptics::click();
             Power::onActivity();
             Serial.println("{\"status\":\"event\",\"type\":\"tap\",\"sensor\":\"head\"}");
             break;

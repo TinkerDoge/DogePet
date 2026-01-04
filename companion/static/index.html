@@ -3,21 +3,63 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DogePet Config v2.0</title>
+    <title>DogePet Config v4.0</title>
     <link rel="stylesheet" href="style.css">
     <style>
-        /* Override for single-window scrollable layout */
+        /* Tab Navigation */
+        .tab-nav {
+            display: flex;
+            gap: 5px;
+            margin-bottom: 20px;
+            border-bottom: 3px solid var(--border-color);
+            padding-bottom: 5px;
+        }
+        .tab-btn {
+            background: var(--bg-dark);
+            border: 2px solid var(--border-color);
+            padding: 8px 20px;
+            font-family: 'VT323', monospace;
+            font-size: 1.1rem;
+            color: var(--text-muted);
+            cursor: pointer;
+            transition: all 0.2s;
+            border-radius: 6px 6px 0 0;
+        }
+        .tab-btn:hover {
+            background: var(--bg-light);
+            color: var(--text-color);
+        }
+        .tab-btn.active {
+            background: var(--bg-color);
+            color: var(--accent-green);
+            border-bottom-color: var(--bg-color);
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
         .main-panel {
-            padding: 30px;
-            scroll-behavior: smooth;
+            padding: 20px;
+            max-height: calc(100vh - 200px);
+            overflow-y: auto;
         }
         .section-card {
-            margin-bottom: 40px; /* More space between sections */
+            margin-bottom: 30px;
+        }
+        .reboot-badge {
+            display: inline-block;
+            background: var(--accent-red);
+            color: white;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            margin-left: 10px;
         }
     </style>
 </head>
 <body>
-
     <div class="main-window">
         <!-- Title Bar -->
         <div class="title-bar">
@@ -26,11 +68,11 @@
                 <div class="control-dot" style="background:var(--accent-yellow)"></div>
                 <div class="control-dot" style="background:var(--accent-green)"></div>
             </div>
-            <div class="title-text">UNIFIED_CONFIGurator.EXE</div>
+            <div class="title-text">DOGEPET_CONFIG_v4.0.EXE</div>
             <div style="width: 40px"></div>
         </div>
 
-        <!-- Toolbar (Connection Only) -->
+        <!-- Toolbar -->
         <div class="toolbar">
             <div style="font-family:'VT323'; font-size:1.2rem; color:var(--text-color); margin-right:10px;">COM_PORT:</div>
             <select id="portSelect" style="width: 150px; padding: 6px; border:3px solid var(--border-color); border-radius:6px;">
@@ -45,157 +87,280 @@
 
         <!-- Main Content -->
         <div class="content-area">
-            <div class="main-panel" id="mainContent">
-                
-                <!-- IDENTITY -->
-                <div class="section-card">
-                    <div class="section-title">IDENTITY</div>
-                    <div class="form-group">
-                        <label>BOT NAME</label>
-                        <input type="text" name="bot_name" id="bot_name" maxlength="31">
-                    </div>
+            <div class="main-panel">
+                <!-- Tab Navigation -->
+                <div class="tab-nav">
+                    <button class="tab-btn active" onclick="switchTab('appearance')">⚡ APPEARANCE</button>
+                    <button class="tab-btn" onclick="switchTab('testing')">🧪 TESTING</button>
+                    <button class="tab-btn" onclick="switchTab('audio')">🔊 AUDIO</button>
+                    <button class="tab-btn" onclick="switchTab('motion')">🔄 MOTION</button>
+                    <button class="tab-btn" onclick="switchTab('power')">🔋 POWER</button>
+                    <button class="tab-btn" onclick="switchTab('hardware')">⚙️ HARDWARE</button>
                 </div>
 
-                <!-- DISPLAY & EYES -->
-                <div class="section-card">
-                    <div class="section-title">VISUALS_MODULE</div>
-                    <div class="form-row">
-                        <div class="full-width">
-                            <label>EYE_WIDTH (px)</label>
-                            <input type="range" name="eye.width" min="10" max="60" oninput="updateDisp(this, 'val_ew')">
-                            <span id="val_ew">28</span>
-                        </div>
-                        <div class="full-width">
-                            <label>EYE_HEIGHT (px)</label>
-                            <input type="range" name="eye.height" min="10" max="60" oninput="updateDisp(this, 'val_eh')">
-                            <span id="val_eh">40</span>
+                <!-- TAB: APPEARANCE (Dynamic) -->
+                <div id="tab-appearance" class="tab-content active">
+                    <!-- IDENTITY -->
+                    <div class="section-card">
+                        <div class="section-title">IDENTITY</div>
+                        <div class="form-group">
+                            <label>BOT NAME</label>
+                            <input type="text" name="bot_name" id="bot_name" maxlength="31">
                         </div>
                     </div>
-                    <div class="form-row" style="margin-top:10px">
-                        <div class="full-width">
-                            <label>EYE_RADIUS (px)</label>
-                            <input type="range" name="eye.radius" min="0" max="30" oninput="updateDisp(this, 'val_er')">
-                            <span id="val_er">8</span>
-                        </div>
-                        <div class="full-width">
-                            <label>SPACING (px)</label>
-                            <input type="range" name="eye.spacing" min="0" max="50" oninput="updateDisp(this, 'val_es')">
-                            <span id="val_es">10</span>
-                        </div>
-                    </div>
-                    <div class="form-row" style="margin-top:15px">
-                        <label class="checkbox-wrapper full-width">
-                            <input type="checkbox" name="eye.auto_blink">
-                            <span>AUTO_BLINK</span>
-                        </label>
-                        <label class="checkbox-wrapper full-width">
-                            <input type="checkbox" name="eye.idle_mode">
-                            <span>IDLE_LOOKING</span>
-                        </label>
-                    </div>
-                    <div class="form-row" style="margin-top:5px">
-                        <label class="checkbox-wrapper full-width">
-                            <input type="checkbox" name="eye.cyclops">
-                            <span>CYCLOPS_MODE</span>
-                        </label>
-                        <label class="checkbox-wrapper full-width">
-                            <input type="checkbox" name="eye.sweat">
-                            <span>SWEAT_EFFECT</span>
-                        </label>
-                    </div>
-                    <div class="form-row" style="margin-top:15px">
-                        <div class="full-width">
-                            <label>BLINK_INT (s)</label>
-                            <input type="number" name="eye.blink_int">
-                        </div>
-                        <div class="full-width">
-                            <label>IDLE_INT (s)</label>
-                            <input type="number" name="eye.idle_int">
-                        </div>
-                    </div>
-                    <hr style="margin:20px 0; border:1px dashed var(--border-color); opacity:0.3;">
-                    <div class="form-row">
-                        <div class="full-width">
-                            <label>OLED_CONTRAST (0-255)</label>
-                            <input type="range" name="screen.con" min="0" max="255" oninput="updateDisp(this, 'val_con')">
-                            <span id="val_con" style="font-size:0.7rem; font-weight:bold">255</span>
-                        </div>
-                        <label class="checkbox-wrapper full-width">
-                            <input type="checkbox" name="screen.flip">
-                            <span>ROTATE_180</span>
-                        </label>
-                    </div>
-                </div>
 
-                <!-- MOTION -->
-                <div class="section-card">
-                    <div class="section-title">MPU_SENSITIVITY</div>
-                    <div class="form-group">
-                        <div style="display:flex; justify-content:space-between"><label>TILT_THRESHOLD</label><span id="val_tilt">20</span></div>
-                        <input type="range" min="5" max="60" name="motion.tilt" oninput="updateDisp(this, 'val_tilt')">
-                    </div>
-                    <div class="form-group">
-                        <div style="display:flex; justify-content:space-between"><label>SHAKE_THRESHOLD</label><span id="val_shake">200</span></div>
-                        <input type="range" min="100" max="800" name="motion.shake" oninput="updateDisp(this, 'val_shake')">
-                    </div>
-                    <div class="form-group">
-                        <div style="display:flex; justify-content:space-between"><label>FURIOUS_THRESHOLD</label><span id="val_furious">400</span></div>
-                        <input type="range" min="200" max="1000" name="motion.furious" oninput="updateDisp(this, 'val_furious')">
-                    </div>
-                    <div class="form-group">
-                        <div style="display:flex; justify-content:space-between"><label>TAP_SENSITIVITY</label><span id="val_tap">150</span></div>
-                        <input type="range" min="50" max="500" name="motion.tap" oninput="updateDisp(this, 'val_tap')">
-                    </div>
-                </div>
-
-                <!-- FEEDBACK & SYSTEM -->
-                <div class="section-card">
-                    <div class="section-title">SYSTEM_FEEDBACK</div>
-                    <div class="form-row">
-                        <div class="full-width">
-                            <label>AUDIO_VOLUME</label>
-                            <input type="range" name="audio.vol" min="0" max="100" oninput="updateDisp(this, 'val_vol')">
-                            <span id="val_vol">100</span>
-                        </div>
-                        <div class="full-width">
-                            <label>MIC_SENSITIVITY (dB)</label>
-                            <input type="range" name="audio.mic_t" min="1" max="20" oninput="updateDisp(this, 'val_mic')">
-                            <span id="val_mic">5</span>
-                        </div>
-                    </div>
-                    <div class="form-row" style="margin-top:10px">
-                        <div class="full-width">
-                            <label>HAPTIC_INTENSITY</label>
-                            <input type="range" name="haptic_int" min="0" max="255" oninput="updateDisp(this, 'val_hap')">
-                            <span id="val_hap">255</span>
-                        </div>
-                    </div>
-                    <div class="form-group" style="margin-top:15px">
-                        <label>STATUS_LED_COLOR (R G B)</label>
+                    <!-- DISPLAY & EYES -->
+                    <div class="section-card">
+                        <div class="section-title">EYE_APPEARANCE</div>
                         <div class="form-row">
+                            <div class="full-width">
+                                <label>EYE_WIDTH (px)</label>
+                                <input type="range" name="face.width" min="10" max="60" oninput="updateDisp(this, 'val_ew')">
+                                <span id="val_ew">28</span>
+                            </div>
+                            <div class="full-width">
+                                <label>EYE_HEIGHT (px)</label>
+                                <input type="range" name="face.height" min="10" max="60" oninput="updateDisp(this, 'val_eh')">
+                                <span id="val_eh">40</span>
+                            </div>
+                        </div>
+                        <div class="form-row" style="margin-top:10px">
+                            <div class="full-width">
+                                <label>BORDER_RADIUS (px)</label>
+                                <input type="range" name="face.radius" min="0" max="30" oninput="updateDisp(this, 'val_er')">
+                                <span id="val_er">8</span>
+                            </div>
+                            <div class="full-width">
+                                <label>SPACING (px)</label>
+                                <input type="range" name="face.spacing" min="0" max="50" oninput="updateDisp(this, 'val_es')">
+                                <span id="val_es">10</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- EYE ANIMATION -->
+                    <div class="section-card">
+                        <div class="section-title">ANIMATION</div>
+                        <div class="form-row">
+                            <label class="checkbox-wrapper full-width">
+                                <input type="checkbox" name="face.auto_blink">
+                                <span>AUTO_BLINK</span>
+                            </label>
+                            <label class="checkbox-wrapper full-width">
+                                <input type="checkbox" name="face.idle_mode">
+                                <span>IDLE_LOOKING</span>
+                            </label>
+                        </div>
+                        <div class="form-row" style="margin-top:15px">
+                            <div class="full-width">
+                                <label>BLINK_INTERVAL (s)</label>
+                                <input type="number" name="face.blink_interval" min="1" max="10">
+                            </div>
+                            <div class="full-width">
+                                <label>IDLE_INTERVAL (s)</label>
+                                <input type="number" name="face.idle_interval" min="1" max="10">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- DISPLAY -->
+                    <div class="section-card">
+                        <div class="section-title">DISPLAY</div>
+                        <div class="form-group">
+                            <label>OLED_CONTRAST (0-255)</label>
+                            <input type="range" name="face.contrast" min="0" max="255" oninput="updateDisp(this, 'val_con')">
+                            <span id="val_con">255</span>
+                        </div>
+                    </div>
+
+                    <!-- LED -->
+                    <div class="section-card">
+                        <div class="section-title">STATUS_LED</div>
+                        <div class="form-group">
+                            <label>LED_BRIGHTNESS</label>
+                            <input type="range" name="led.brightness" min="0" max="255" oninput="updateDisp(this, 'val_led_bri')">
+                            <span id="val_led_bri">60</span>
+                        </div>
+                        <div class="form-row" style="margin-top:10px">
                             <input type="number" name="led.r" placeholder="R" min="0" max="255">
                             <input type="number" name="led.g" placeholder="G" min="0" max="255">
                             <input type="number" name="led.b" placeholder="B" min="0" max="255">
                         </div>
-                        <div style="margin-top:10px">
-                            <label>LED_BRIGHTNESS</label>
-                            <input type="range" name="led.bri" min="0" max="255" oninput="updateDisp(this, 'val_lebri')">
-                            <span id="val_lebri">100</span>
-                        </div>
                     </div>
-                    <hr style="margin:20px 0; border:1px dashed var(--border-color); opacity:0.3;">
-                    <div class="form-row">
-                        <div class="full-width">
-                            <label>IDLE_DIM_MS</label>
-                            <input type="number" name="power.idle_ms">
+                </div>
+
+                <!-- TAB: TESTING -->
+                <div id="tab-testing" class="tab-content">
+                    <div class="section-card">
+                        <div class="section-title">EXPRESSION_TESTS</div>
+                        <div class="form-row">
+                            <button class="action-btn" onclick="testFace('happy')">😊 HAPPY</button>
+                            <button class="action-btn" onclick="testFace('curious')">🤔 CURIOUS</button>
                         </div>
-                        <div class="full-width">
-                            <label>SLEEP_MS</label>
-                            <input type="number" name="power.sleep_ms">
+                        <div class="form-row">
+                            <button class="action-btn" onclick="testFace('confused')">😕 CONFUSED</button>
+                            <button class="action-btn" onclick="testFace('laugh')">😆 LAUGH</button>
+                        </div>
+                        <div class="form-row">
+                            <button class="action-btn" onclick="testFace('sleep')">😴 SLEEP</button>
+                            <button class="action-btn" onclick="testFace('toast')">📜 TOAST</button>
+                        </div>
+                        <div class="form-row">
+                            <button class="action-btn btn-red" onclick="testFace('off')">⬛ DISPLAY_OFF</button>
                         </div>
                     </div>
                 </div>
 
+                <!-- TAB: AUDIO -->
+                <div id="tab-audio" class="tab-content">
+                    <div class="section-card">
+                        <div class="section-title">AUDIO_OUTPUT</div>
+                        <div class="form-group">
+                            <label>VOLUME (0-100)</label>
+                            <input type="range" name="audio.volume" min="0" max="100" oninput="updateDisp(this, 'val_vol')">
+                            <span id="val_vol">100</span>
+                        </div>
+                        <div class="form-row" style="margin-top:15px">
+                            <label class="checkbox-wrapper full-width">
+                                <input type="checkbox" name="audio.mic_log">
+                                <span>MIC_DEBUG_LOG</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="section-card">
+                        <div class="section-title">HAPTICS</div>
+                        <div class="form-group">
+                            <label>VIBRATION_INTENSITY (0-255)</label>
+                            <input type="range" name="haptic.intensity" min="0" max="255" oninput="updateDisp(this, 'val_hap')">
+                            <span id="val_hap">255</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TAB: MOTION (Persistent) -->
+                <div id="tab-motion" class="tab-content">
+                    <div class="section-card">
+                        <div class="section-title">MOTION_SENSITIVITY <span class="reboot-badge">REBOOT REQ</span></div>
+                        <div class="form-group">
+                            <div style="display:flex; justify-content:space-between">
+                                <label>TILT_THRESHOLD (deg)</label>
+                                <span id="val_tilt">20</span>
+                            </div>
+                            <input type="range" min="5" max="60" step="0.5" name="motion.tilt_deg" oninput="updateDisp(this, 'val_tilt')">
+                        </div>
+                        <div class="form-group">
+                            <div style="display:flex; justify-content:space-between">
+                                <label>SHAKE_ANGRY (dps)</label>
+                                <span id="val_shake">200</span>
+                            </div>
+                            <input type="range" min="100" max="800" name="motion.shake_angry_dps" oninput="updateDisp(this, 'val_shake')">
+                        </div>
+                        <div class="form-group">
+                            <div style="display:flex; justify-content:space-between">
+                                <label>SHAKE_FURIOUS (dps)</label>
+                                <span id="val_furious">280</span>
+                            </div>
+                            <input type="range" min="200" max="1000" name="motion.shake_furious_dps" oninput="updateDisp(this, 'val_furious')">
+                        </div>
+                        <div class="form-group">
+                            <div style="display:flex; justify-content:space-between">
+                                <label>TAP_THRESHOLD (dps)</label>
+                                <span id="val_tap">140</span>
+                            </div>
+                            <input type="range" min="50" max="500" name="motion.tap_spike_dps" oninput="updateDisp(this, 'val_tap')">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TAB: POWER (Persistent) -->
+                <div id="tab-power" class="tab-content">
+                    <div class="section-card">
+                        <div class="section-title">POWER_MANAGEMENT <span class="reboot-badge">REBOOT REQ</span></div>
+                        <div class="form-row">
+                            <div class="full-width">
+                                <label>IDLE_TIMEOUT (ms)</label>
+                                <input type="number" name="power.idle_timeout_ms" min="10000" max="600000" step="1000">
+                            </div>
+                            <div class="full-width">
+                                <label>SLEEP_TIMEOUT (ms)</label>
+                                <input type="number" name="power.sleep_timeout_ms" min="20000" max="600000" step="1000">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TAB: HARDWARE (Persistent) -->
+                <div id="tab-hardware" class="tab-content">
+                    <div class="section-card">
+                        <div class="section-title">⚠️ GPIO_PINS <span class="reboot-badge">REBOOT REQ</span></div>
+                        <p style="color: var(--accent-yellow); font-size: 0.9rem; margin-bottom: 15px;">
+                            ⚠️ WARNING: Changing pins may brick your device if incorrect!
+                        </p>
+                        
+                        <label>I2C_BUS</label>
+                        <div class="form-row">
+                            <div class="full-width">
+                                <label>SDA</label>
+                                <input type="number" name="pins.i2c_sda" min="0" max="48">
+                            </div>
+                            <div class="full-width">
+                                <label>SCL</label>
+                                <input type="number" name="pins.i2c_scl" min="0" max="48">
+                            </div>
+                        </div>
+
+                        <hr style="margin:15px 0; border:1px dashed var(--border-color); opacity:0.3;">
+                        
+                        <label>TOUCH_INPUTS</label>
+                        <div class="form-row">
+                            <div class="full-width">
+                                <label>FUNC_BTN</label>
+                                <input type="number" name="pins.func_btn" min="0" max="48">
+                            </div>
+                            <div class="full-width">
+                                <label>TOUCH_CHIN</label>
+                                <input type="number" name="pins.touch_chin" min="0" max="48">
+                            </div>
+                        </div>
+
+                        <hr style="margin:15px 0; border:1px dashed var(--border-color); opacity:0.3;">
+                        
+                        <label>I2S_AUDIO</label>
+                        <div class="form-row">
+                            <input type="number" name="pins.i2s_bclk" placeholder="BCLK" min="0" max="48">
+                            <input type="number" name="pins.i2s_lrc" placeholder="LRC" min="0" max="48">
+                        </div>
+                        <div class="form-row" style="margin-top:5px">
+                            <input type="number" name="pins.i2s_do" placeholder="DOUT" min="0" max="48">
+                            <input type="number" name="pins.i2s_di" placeholder="DIN" min="0" max="48">
+                        </div>
+
+                        <hr style="margin:15px 0; border:1px dashed var(--border-color); opacity:0.3;">
+                        
+                        <label>PERIPHERALS</label>
+                        <div class="form-row">
+                            <div class="full-width">
+                                <label>LED_PIN</label>
+                                <input type="number" name="pins.led" min="0" max="48">
+                            </div>
+                            <div class="full-width">
+                                <label>VBAT_ADC</label>
+                                <input type="number" name="pins.vbat" min="0" max="48">
+                            </div>
+                        </div>
+                        <div class="form-row" style="margin-top:10px">
+                            <div class="full-width">
+                                <label>VIBRO_LEFT</label>
+                                <input type="number" name="pins.vibro_left" min="0" max="48">
+                            </div>
+                            <div class="full-width">
+                                <label>VIBRO_RIGHT</label>
+                                <input type="number" name="pins.vibro_right" min="0" max="48">
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <!-- Sidebar -->
@@ -205,12 +370,12 @@
                 </div>
                 
                 <button id="btnSave" class="action-btn">
-                    SAVE & REBOOT
+                    💾 SAVE_CONFIG
                 </button>
                 
                 <div style="margin-top:auto">
-                    <button id="btnReboot" class="action-btn btn-white" style="font-size: 0.8rem">REBOOT_ONLY</button>
-                    <button id="btnReset" class="action-btn btn-red" style="font-size: 0.8rem">FACTORY_RESET</button>
+                    <button id="btnReboot" class="action-btn btn-white" style="font-size: 0.8rem">🔄 REBOOT</button>
+                    <button id="btnReset" class="action-btn btn-red" style="font-size: 0.8rem">⚠️ FACTORY_RESET</button>
                 </div>
             </div>
         </div>
@@ -220,6 +385,20 @@
     <script>
         function updateDisp(el, id) {
             document.getElementById(id).innerText = el.value;
+        }
+
+        function switchTab(tabName) {
+            // Hide all tabs
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+
+            // Show selected tab
+            document.getElementById('tab-' + tabName).classList.add('active');
+            event.target.classList.add('active');
         }
     </script>
     <script src="app.js"></script>

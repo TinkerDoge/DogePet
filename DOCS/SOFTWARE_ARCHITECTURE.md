@@ -207,7 +207,8 @@ DogePet/
 │       ├── library.properties
 │       └── src/
 │           ├── DogePetLib.h     # Single include header
-│           ├── config.h         # Pins, thresholds, timing
+│           ├── config.h         # Compile-time defaults
+│           ├── Settings.h/.cpp  # Runtime settings (NVS)
 │           ├── mpu6050.h        # Simple I2C MPU helper
 │           ├── Motion.h/.cpp    # Motion events
 │           ├── Face.h/.cpp      # OLED + RoboEyes
@@ -235,18 +236,86 @@ DogePet/
 
 ---
 
-## Configuration System
+## Settings System
 
-All configurable parameters are centralized in `libraries/DogePetLib/src/config.h`:
+DogePet uses a two-tier configuration system:
+
+### 1. Compile-Time Defaults (`config.h`)
+Static constants defined at compile time. These serve as factory defaults.
+
+### 2. Runtime Settings (`Settings.h/.cpp`)
+Stored in ESP32 NVS (Non-Volatile Storage). Loaded at boot, can be modified via serial commands.
+
+### Settings Categories
+
+| Category | Type | When Applied | Description |
+|----------|------|--------------|-------------|
+| **Face** | Dynamic | Immediately | Eye size, shape, animation timing, contrast |
+| **Audio** | Dynamic | Immediately | Volume, mic logging |
+| **Haptic** | Dynamic | Immediately | Vibration intensity |
+| **LED** | Dynamic | Immediately | Brightness, RGB color |
+| **Motion** | Persistent | After reboot | Tilt, shake, tap thresholds |
+| **Power** | Persistent | After reboot | Idle/sleep timeouts |
+| **Pins** | Persistent | After reboot | GPIO assignments |
+
+### Settings API
+
+```cpp
+// At boot (in setup)
+Settings::begin();  // Load from NVS (or defaults)
+
+// Apply dynamic settings to modules
+Face::applySettings();   // Updates eye parameters live
+
+// Change a setting
+Settings::face.width = 32;
+Settings::save();        // Save to NVS
+
+// Check if reboot needed
+if (Settings::pendingReboot) {
+    Serial.println("Reboot required");
+}
+
+// Reset to factory defaults
+Settings::resetDefaults();
+```
+
+### Display Mode Control
+
+The Face module supports multiple display modes to prevent RoboEyes from interfering with other content:
+
+```cpp
+// Show custom content (disables eyes)
+Face::setMode(DisplayMode::Custom);
+Face::getDisplay()->clearDisplay();
+Face::getDisplay()->println("Hello!");
+Face::refresh();
+
+// Resume eyes
+Face::setMode(DisplayMode::Eyes);
+```
+
+**Display Modes:**
+- `Eyes` - Normal RoboEyes animation
+- `Sleep` - Closed eyes with Zzz animation
+- `Toast` - Notification overlay (eyes paused)
+- `Custom` - User draws directly
+- `Off` - Display blank
+
+---
+
+## Configuration Defaults (`config.h`)
+
+All default values are defined in `config.h`:
 
 | Category | Examples |
 |----------|----------|
 | **Hardware Pins** | `I2C_SDA`, `I2C_SCL`, `FUNC_BTN`, `LED_PIN` |
 | **Display** | `SCREEN_W`, `SCREEN_H`, `SCREEN_ADDR` |
-| **Eye Appearance** | `EYE_WIDTH`, `EYE_HEIGHT`, `EYE_SPACING` |
-| **Audio** | `AUDIO_SAMPLE_RATE`, `AUDIO_VOLUME` |
-| **Motion Thresholds** | `TILT_THRESHOLD_DEG`, `SHAKE_ANGRY_DPS` |
-| **Power/Battery** | `VBAT_MIN_V`, `VBAT_MAX_V`, `IDLE_TIMEOUT_MS` |
+| **Eye Appearance** | `DEFAULT_EYE_WIDTH`, `DEFAULT_EYE_HEIGHT`, `DEFAULT_EYE_SPACING` |
+| **Audio** | `AUDIO_SAMPLE_RATE`, `DEFAULT_AUDIO_VOLUME` |
+| **Motion Thresholds** | `DEFAULT_TILT_THRESHOLD_DEG`, `DEFAULT_SHAKE_ANGRY_DPS` |
+| **Power/Battery** | `VBAT_MIN_V`, `VBAT_MAX_V`, `DEFAULT_IDLE_TIMEOUT_MS` |
 | **Touch Timing** | `DEBOUNCE_MS`, `TAP_MAX_MS`, `HOLD_MIN_MS` |
 | **Debug Flags** | `ENABLE_MOTION_DEBUG`, `DEBUG_SERIAL` |
 
@@ -262,8 +331,10 @@ void setup() {
     Serial.begin(115200);
     Wire.begin(I2C_SDA, I2C_SCL, 400000);
     
+    Settings::begin();  // Load settings from NVS
+    
     Motion::init();
-    Face::init();
+    Face::init();       // Uses Settings::face for eye params
     Touch::init();
     // ... other modules
 }

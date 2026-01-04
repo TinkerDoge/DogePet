@@ -69,7 +69,7 @@ static constexpr uint8_t DEFAULT_IDLE_VARIATION  = 2;
 // AUDIO SETTINGS
 // =============================================================================
 static constexpr uint32_t AUDIO_SAMPLE_RATE = 22050;
-static constexpr uint8_t  DEFAULT_AUDIO_VOLUME      = 100;  // 0-100
+static constexpr uint8_t  DEFAULT_AUDIO_VOLUME      = 50;  // 0-100
 
 // Microphone
 static constexpr uint32_t MIC_SAMPLE_RATE = 22050;
@@ -147,3 +147,24 @@ static constexpr bool DEBUG_I2C_SCAN      = true;   // I2C scan at boot
 static constexpr const char* DEVICE_NAME   = "DogePet";
 static constexpr const char* FIRMWARE_VER  = "2.0.0";
 static constexpr const char* HARDWARE_REV  = "ESP32-S3-Mini";
+
+// =============================================================================
+// CONVENIENCE ALIASES (without DEFAULT_ prefix)
+// =============================================================================
+#define OLED_CONTRAST       DEFAULT_OLED_CONTRAST
+#define EYE_WIDTH           DEFAULT_EYE_WIDTH
+#define EYE_HEIGHT          DEFAULT_EYE_HEIGHT
+#define EYE_BORDER_RADIUS   DEFAULT_EYE_BORDER_RADIUS
+#define EYE_SPACING         DEFAULT_EYE_SPACING
+#define EYE_AUTO_BLINK      DEFAULT_EYE_AUTO_BLINK
+#define EYE_IDLE_MODE       DEFAULT_EYE_IDLE_MODE
+#define BLINK_INTERVAL      DEFAULT_BLINK_INTERVAL
+#define BLINK_VARIATION     DEFAULT_BLINK_VARIATION
+#define IDLE_INTERVAL       DEFAULT_IDLE_INTERVAL
+#define IDLE_VARIATION      DEFAULT_IDLE_VARIATION
+#define TILT_THRESHOLD_DEG  DEFAULT_TILT_THRESHOLD_DEG
+#define SHAKE_ANGRY_DPS     DEFAULT_SHAKE_ANGRY_DPS
+#define SHAKE_FURIOUS_DPS   DEFAULT_SHAKE_FURIOUS_DPS
+#define TAP_SPIKE_DPS       DEFAULT_TAP_SPIKE_DPS
+#define IDLE_TIMEOUT_MS     DEFAULT_IDLE_TIMEOUT_MS
+#define SLEEP_TIMEOUT_MS    DEFAULT_SLEEP_TIMEOUT_MS

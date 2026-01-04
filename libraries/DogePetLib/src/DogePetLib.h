@@ -3,7 +3,7 @@
 #pragma once
 
 #include "config.h"
-#include "ConfigManager.h"
+#include "Settings.h"
 #include "mpu6050.h"
 #include "Motion.h"
 #include "FluxGarage_RoboEyes.h"

@@ -3,7 +3,6 @@
 #include <driver/i2s.h>
 #include <math.h>
 
-#include "ConfigManager.h"
 // I2S Configuration
 #define I2S_PORT I2S_NUM_0
 #define I2S_SAMPLE_RATE 22050
@@ -19,8 +18,8 @@ uint32_t Audio::lastMicLogMs = 0;
 
 void Audio::init() {
     initI2S();
-    // Set initial volume
-    volume = settings.audio.vol;
+    // Set initial volume from config.h
+    volume = DEFAULT_AUDIO_VOLUME;
     
     Serial.println("{\"status\":\"info\",\"msg\":\"Audio: I2S OK\"}");
 }

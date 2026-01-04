@@ -1,6 +1,5 @@
 // Power.cpp - Battery monitoring and sleep management
 #include "Power.h"
-#include "ConfigManager.h"
 
 PowerState Power::state = PowerState::ACTIVE;
 uint32_t Power::lastActivityMs = 0;
@@ -73,7 +72,7 @@ void Power::update() {
     
     switch (state) {
         case PowerState::ACTIVE:
-            if (idleTime >= settings.power.idle_ms) {
+            if (idleTime >= IDLE_TIMEOUT_MS) {
                 state = PowerState::DIM;
                 Serial.println("{\"status\":\"info\",\"msg\":\"Entering DIM mode\"}");
                 if (onDimCallback) onDimCallback();
@@ -81,7 +80,7 @@ void Power::update() {
             break;
             
         case PowerState::DIM:
-            if (idleTime >= settings.power.sleep_ms) {
+            if (idleTime >= SLEEP_TIMEOUT_MS) {
                 sleep();
             }
             break;

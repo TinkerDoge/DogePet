@@ -1,6 +1,5 @@
 // Haptics.cpp - Vibration motor control
 #include "Haptics.h"
-#include "ConfigManager.h"
 
 // Track if LEDC is set up
 static bool ledcSetup = false;
@@ -28,12 +27,9 @@ void Haptics::setMotor(int pin, int pwm) {
 }
 
 void Haptics::buzz(uint8_t left, uint8_t right, uint32_t durationMs) {
-    // Scale by intensity setting
-    uint8_t l = (uint16_t)left * settings.haptic_int / 255;
-    uint8_t r = (uint16_t)right * settings.haptic_int / 255;
-    
-    analogWrite(VIBRO_LEFT, l);
-    analogWrite(VIBRO_RIGHT, r);
+    // Drive motors directly (no scaling - use PWM value as-is)
+    analogWrite(VIBRO_LEFT, left);
+    analogWrite(VIBRO_RIGHT, right);
     delay(durationMs);
     analogWrite(VIBRO_LEFT, 0);
     analogWrite(VIBRO_RIGHT, 0);

@@ -1,69 +1,275 @@
-# DogePet Serial Protocol v3.0 (Unified Config)
+# DogePet Serial Protocol v4.0
 
 This document defines the serial communication protocol between the DogePet Companion App and the ESP32 Firmware.
 
-### Communication Settings
-*   **Baud Rate**: `115200`
-*   **Format**: JSON strings terminated by newline `\n`.
+## Communication Settings
+- **Baud Rate**: `115200`
+- **Format**: JSON strings terminated by newline `\n`
 
 ---
 
-## 1. Commands (PC -> ESP32)
+## 1. Settings Categories
 
-### Get Configuration
-Requests the entire runtime settings object from the bot.
+Settings are divided into two categories based on when changes take effect:
+
+### Dynamic Settings (Apply Immediately)
+These settings apply immediately without requiring a reboot:
+
+| Category | Fields | Description |
+|:---------|:-------|:------------|
+| **face** | width, height, radius, spacing, auto_blink, idle_mode, blink_interval, idle_interval, contrast | Eye appearance and animation |
+| **audio** | volume, mic_log | Sound volume and mic logging |
+| **haptic** | intensity | Vibration motor strength |
+| **led** | brightness, r, g, b | Status LED color and brightness |
+
+### Persistent Settings (Require Reboot)
+These settings are saved to NVS and require a reboot to take effect:
+
+| Category | Fields | Description |
+|:---------|:-------|:------------|
+| **motion** | tilt_deg, shake_angry_dps, shake_furious_dps, tap_spike_dps | Motion detection thresholds |
+| **power** | idle_timeout_ms, sleep_timeout_ms | Power management timing |
+| **pins** | i2c_sda, i2c_scl, func_btn, touch_chin, i2s_bclk, i2s_lrc, i2s_do, i2s_di, led, vbat, vibro_left, vibro_right | GPIO pin assignments |
+
+---
+
+## 2. Commands (PC → ESP32)
+
+### Get All Settings
+Request the complete settings object.
+
 **Command:** `get_config`
-**Response:** `{"type":"config", "data": { ...settings object... }}`
 
-### Set Configuration
-Updates settings and triggers a reboot.
-**Command:** `{"cmd":"set_config", ...settings...}`
-**Response:** `{"status":"ok", "msg":"Config updated. Rebooting..."}`
+**Response:**
+```json
+{
+  "type": "config",
+  "data": {
+    "bot_name": "DogePet",
+    "firmware": "2.0.0",
+    "pending_reboot": false,
+    "face": {
+      "width": 28,
+      "height": 40,
+      "radius": 8,
+      "spacing": 10,
+      "auto_blink": true,
+      "idle_mode": true,
+      "blink_interval": 3,
+      "idle_interval": 4,
+      "contrast": 255
+    },
+    "audio": {
+      "volume": 100,
+      "mic_log": true
+    },
+    "haptic": {
+      "intensity": 255
+    },
+    "led": {
+      "brightness": 60,
+      "r": 255,
+      "g": 100,
+      "b": 0
+    },
+    "motion": {
+      "tilt_deg": 20.0,
+      "shake_angry_dps": 200.0,
+      "shake_furious_dps": 280.0,
+      "tap_spike_dps": 140.0
+    },
+    "power": {
+      "idle_timeout_ms": 60000,
+      "sleep_timeout_ms": 120000
+    },
+    "pins": {
+      "i2c_sda": 6,
+      "i2c_scl": 5,
+      "func_btn": 41,
+      "touch_chin": 1,
+      "i2s_bclk": 17,
+      "i2s_lrc": 16,
+      "i2s_do": 33,
+      "i2s_di": 11,
+      "led": 48,
+      "vbat": 15,
+      "vibro_left": 4,
+      "vibro_right": 3
+    }
+  }
+}
+```
 
-### Reboot
-Restarts the bot immediately.
+### Get Dynamic Settings Only
+Request only settings that can be changed without reboot.
+
+**Command:** `get_dynamic`
+
+**Response:**
+```json
+{
+  "type": "dynamic",
+  "data": {
+    "bot_name": "DogePet",
+    "face": { ... },
+    "audio": { ... },
+    "haptic": { ... },
+    "led": { ... }
+  }
+}
+```
+
+### Get Persistent Settings Only
+Request only settings that require reboot.
+
+**Command:** `get_persistent`
+
+**Response:**
+```json
+{
+  "type": "persistent",
+  "data": {
+    "pending_reboot": false,
+    "motion": { ... },
+    "power": { ... },
+    "pins": { ... }
+  }
+}
+```
+
+### Set Settings
+Update settings (partial updates supported).
+
+**Command:**
+```json
+{"cmd": "set_config", "face": {"width": 32, "height": 44}}
+```
+
+**Response (dynamic change):**
+```json
+{"status": "ok", "msg": "Dynamic settings applied and saved."}
+```
+
+**Response (persistent change):**
+```json
+{"status": "ok", "msg": "Persistent settings saved. Reboot required."}
+```
+
+### Reboot Device
+Restart the ESP32 immediately.
+
 **Command:** `reboot`
-**Response:** `{"status":"info", "msg":"Rebooting..."}`
+
+**Response:**
+```json
+{"status": "info", "msg": "Rebooting..."}
+```
 
 ### Factory Reset
-Wipes NVS settings and restores defaults.
+Wipe all NVS settings and restore defaults.
+
 **Command:** `factory_reset`
-**Response:** `{"status":"info", "msg":"Resetting to defaults..."}`
+
+**Response:**
+```json
+{"status": "info", "msg": "Settings reset to defaults. Reboot required."}
+```
 
 ---
 
-## 2. Configuration Data Structure
-The following fields are supported in the `get_config` / `set_config` JSON payloads:
+## 3. Telemetry (ESP32 → PC)
 
-| Key | Type | Description |
-| :--- | :--- | :--- |
-| `bot_name` | `string` | Name of the bot (max 31 chars) |
-| `eye.width` | `int` | Width of eyes (px) |
-| `eye.height` | `int` | Height of eyes (px) |
-| `eye.radius` | `int` | Corner radius (px) |
-| `eye.spacing` | `int` | Space between eyes (px) |
-| `eye.auto_blink` | `bool` | Enable auto blinking |
-| `eye.idle_mode` | `bool` | Enable random eye movement |
-| `eye.blink_int` | `int` | Avg time between blinks (s) |
-| `eye.idle_int` | `int` | Avg time between movements (s) |
-| `motion.tilt` | `float` | Tilt threshold (deg) |
-| `motion.shake` | `float` | Shake threshold (dps) |
-| `motion.furious` | `float` | Furious shake threshold (dps) |
-| `motion.tap` | `float` | Tap sensitivity (dps) |
-| `power.idle_ms` | `int` | Time to dim (ms) |
-| `power.sleep_ms` | `int` | Time to sleep (ms) |
-| `volume` | `int` | Global volume (0-100) |
-| `haptic_int` | `int` | Haptic intensity (0-255) |
-
----
-
-## 3. Passive Telemetry (ESP32 -> PC)
-The bot sends periodic status updates (passive) or responses to actions.
+The bot sends periodic status updates and event notifications.
 
 ### System Logs
-`{"status":"info|error", "msg":"..."}`
+```json
+{"status": "info", "msg": "Boot complete"}
+{"status": "error", "msg": "MPU6050 not found"}
+```
 
-### Boot Info
-Sent during startup to the serial monitor.
-`{"status":"info", "msg":"I2C Scan..."}`
-`{"status":"info", "msg":"Motion Sensor OK"}`
+### Events
+```json
+{"status": "event", "type": "tap", "source": "head"}
+{"status": "event", "type": "petting_start", "source": "head"}
+{"status": "event", "type": "petting_end", "duration_ms": 3500}
+{"status": "event", "type": "shake"}
+{"status": "event", "type": "wake"}
+{"status": "event", "type": "sleep"}
+```
+
+### Sensor Data
+```json
+{"status": "data", "type": "power", "voltage": 3.85, "percent": 72}
+{"status": "data", "type": "mic", "db": 45}
+{"status": "data", "type": "motion", "ax": 0.02, "ay": -0.01, "az": 0.98, "gx": 1.2, "gy": -0.5, "gz": 0.1}
+```
+
+---
+
+## 4. Companion App Implementation Notes
+
+### Connection Flow
+1. Open serial port at 115200 baud
+2. Send `get_config` to retrieve current settings
+3. Parse response and populate UI
+4. Send `set_config` with only changed fields
+5. If `pending_reboot` is true, prompt user to reboot
+
+### UI Organization
+Recommend organizing settings into tabs:
+
+1. **Appearance** (Dynamic)
+   - Eye size (width, height)
+   - Eye shape (radius, spacing)
+   - Animation (auto_blink, idle_mode)
+   - Timing (blink_interval, idle_interval)
+   - Display (contrast)
+
+2. **Sound & Haptics** (Dynamic)
+   - Volume slider (0-100)
+   - Haptic intensity slider (0-255)
+   - Mic logging toggle
+
+3. **LED** (Dynamic)
+   - Brightness slider
+   - Color picker (RGB)
+
+4. **Motion Sensitivity** (Persistent ⚠️)
+   - Tilt threshold
+   - Shake thresholds
+   - Tap sensitivity
+
+5. **Power** (Persistent ⚠️)
+   - Idle timeout
+   - Sleep timeout
+
+6. **Hardware Pins** (Persistent ⚠️)
+   - GPIO assignments (advanced users only)
+
+### Visual Indicators
+- Show ⚡ icon for dynamic settings (instant apply)
+- Show 🔄 icon for persistent settings (reboot required)
+- Show banner "Reboot required for changes to take effect" when `pending_reboot` is true
+
+---
+
+## 5. Example Session
+
+```
+PC: get_config
+ESP: {"type":"config","data":{...}}
+
+PC: {"cmd":"set_config","face":{"width":32}}
+ESP: {"status":"ok","msg":"Dynamic settings applied and saved."}
+
+PC: {"cmd":"set_config","motion":{"tilt_deg":25}}
+ESP: {"status":"ok","msg":"Persistent settings saved. Reboot required."}
+
+PC: reboot
+ESP: {"status":"info","msg":"Rebooting..."}
+```
+
+---
+
+**Protocol Version**: 4.0  
+**Last Updated**: January 2026

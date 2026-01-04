@@ -2,7 +2,6 @@
 #include "Motion.h"
 #include "mpu6050.h"
 #include "config.h"
-#include "ConfigManager.h"
 #include <Wire.h>
 #include <math.h>
 
@@ -66,11 +65,11 @@ bool Motion::begin() {
     // Calibrate and set thresholds
     calibrate();
     
-    // Load runtime settings
-    _tiltDeg = settings.motion.tilt;
-    _shakeAngryDps = settings.motion.shake;
-    _shakeFuriousDps = settings.motion.furious;
-    _tapThresh = settings.motion.tap;
+    // Load thresholds from config.h
+    _tiltDeg = TILT_THRESHOLD_DEG;
+    _shakeAngryDps = SHAKE_ANGRY_DPS;
+    _shakeFuriousDps = SHAKE_FURIOUS_DPS;
+    _tapThresh = TAP_SPIKE_DPS;
     
     _initialized = true;
     

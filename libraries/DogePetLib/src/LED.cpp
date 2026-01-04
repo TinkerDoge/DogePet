@@ -1,6 +1,5 @@
 #include "LED.h"
 #include <Adafruit_NeoPixel.h>
-#include "ConfigManager.h"
 
 static Adafruit_NeoPixel strip(1, LED_PIN, NEO_GRB + NEO_KHZ800);
 
@@ -8,8 +7,8 @@ uint8_t LED::brightness = LED_BRIGHTNESS;
 
 void LED::init() {
     strip.begin();
-    strip.setBrightness(settings.led.brightness);
-    strip.setPixelColor(0, strip.Color(settings.led.r, settings.led.g, settings.led.b));
+    strip.setBrightness(LED_BRIGHTNESS);
+    strip.setPixelColor(0, strip.Color(LED_COLOR_R, LED_COLOR_G, LED_COLOR_B));
     strip.show();
     Serial.println("{\"status\":\"info\",\"msg\":\"LED Init\"}");
 }

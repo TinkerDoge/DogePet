@@ -2,9 +2,8 @@
 // Communicates via USB Serial with PC companion app
 
 #include <Wire.h>
-#include <Wire.h>
+#include <ArduinoJson.h>
 #include <DogePetLib.h>
-#include "ConfigManager.h"
 
 // External controls for RoboEyes library
 bool gEyesAutoFlush = true;
@@ -28,11 +27,13 @@ static BootState bootState = BOOT_INIT;
 // =============================================================================
 void setup() {
   // Serial
+  // Increase RX buffer for large JSON payloads
+  Serial.setRxBufferSize(1024);
   Serial.begin(115200);
   delay(500);
 
-  // Load hardware config from NVS (must be before Wire.begin)
-  ConfigManager::begin();
+  // Load runtime settings from NVS (must be before Wire.begin)
+  Settings::begin();
 
   // I2C Bus
   Wire.begin(I2C_SDA, I2C_SCL, 400000);
@@ -208,17 +209,25 @@ void processSerialCmd() {
     // Simple command parsing
     if (line.indexOf("get_config") >= 0) {
       Serial.print("{\"type\":\"config\",\"data\":");
-      Serial.print(ConfigManager::getJson());
+      Serial.print(Settings::toJson());
       Serial.println("}");
     }
     else if (line.indexOf("set_config") >= 0) {
-      if (ConfigManager::applyJson(line)) {
-        Serial.println("{\"status\":\"ok\",\"msg\":\"Config updated. Rebooting...\"}");
-        delay(500);
-        ESP.restart();
-      } else {
-        Serial.println("{\"status\":\"error\",\"msg\":\"Invalid JSON\"}");
+      if (!Settings::fromJson(line)) {
+        // Error already printed by fromJson
       }
+    }
+    else if (line.indexOf("test_face") >= 0) {
+        // format: {"cmd":"test_face","val":"curious"}
+        StaticJsonDocument<200> doc;
+        DeserializationError error = deserializeJson(doc, line);
+        if (!error && doc.containsKey("val")) {
+            const char* val = doc["val"];
+            Face::testExpression(val);
+            Serial.println("{\"status\":\"ok\",\"msg\":\"Expression applied\"}");
+        } else {
+             Serial.println("{\"status\":\"error\",\"msg\":\"Invalid JSON or missing 'val'\"}");
+        }
     }
     else if (line.indexOf("reboot") >= 0) {
       Serial.println("{\"status\":\"info\",\"msg\":\"Rebooting...\"}");
@@ -227,7 +236,7 @@ void processSerialCmd() {
     }
     else if (line.indexOf("factory_reset") >= 0) {
       Serial.println("{\"status\":\"info\",\"msg\":\"Resetting to defaults...\"}");
-      ConfigManager::resetToDefaults();
+      Settings::resetDefaults();
       delay(500);
       ESP.restart();
     }

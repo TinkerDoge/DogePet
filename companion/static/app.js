@@ -17,6 +17,7 @@ let connected = false;
 async function init() {
     await loadPorts();
     setInterval(updateStatus, 1000); // Polling status/logs
+    setupSyncInputs();
     updateUIState();
 }
 
@@ -127,108 +128,230 @@ function getCheck(name) {
 // Config Handling
 async function fetchConfig() {
     const res = await fetch(`${API}/config`);
-    const data = await res.json();
+    const json = await res.json();
     
-    // Serial manager often wraps in data.data or returns object directly
-    const cfg = data.data || data; 
+    // Protocol v4.0: expects { type: "config", data: { ... } }
+    const cfg = json.data || json; 
 
     setVal('bot_name', cfg.bot_name);
-    setVal('eye.width', cfg.eye?.width);
-    setVal('eye.height', cfg.eye?.height);
-    setVal('eye.radius', cfg.eye?.radius);
-    setVal('eye.spacing', cfg.eye?.spacing);
-    setCheck('eye.auto_blink', cfg.eye?.auto_blink);
-    setCheck('eye.idle_mode', cfg.eye?.idle_mode);
-    setCheck('eye.sweat', cfg.eye?.sweat);
-    setCheck('eye.cyclops', cfg.eye?.cyclops);
-    setVal('eye.blink_int', cfg.eye?.blink_int);
-    setVal('eye.idle_int', cfg.eye?.idle_int);
     
-    setVal('motion.tilt', cfg.motion?.tilt);
-    setVal('motion.shake', cfg.motion?.shake);
-    setVal('motion.furious', cfg.motion?.furious);
-    setVal('motion.tap', cfg.motion?.tap);
+    // FACE (NEW dynamic block)
+    setVal('face.width', cfg.face?.width);
+    setVal('face.height', cfg.face?.height);
+    setVal('face.radius', cfg.face?.radius);
+    setVal('face.spacing', cfg.face?.spacing);
+    setCheck('face.auto_blink', cfg.face?.auto_blink);
+    setCheck('face.idle_mode', cfg.face?.idle_mode);
+    setVal('face.blink_int', cfg.face?.blink_interval); // Note: firmware key is blink_interval
+    setVal('face.idle_int', cfg.face?.idle_interval);   // Note: firmware key is idle_interval
+    setVal('screen.con', cfg.face?.contrast);           // Contrast is now in face struct on FW
     
-    setVal('audio.vol', cfg.audio?.vol);
-    setVal('audio.mic_t', cfg.audio?.mic_t);
-    setVal('haptic_int', cfg.haptic_int);
+    // MOTION (Persistent)
+    setVal('motion.tilt', cfg.motion?.tilt_deg);
+    setVal('motion.shake', cfg.motion?.shake_angry_dps);
+    setVal('motion.furious', cfg.motion?.shake_furious_dps);
+    setVal('motion.tap', cfg.motion?.tap_spike_dps);
     
-    setVal('led.bri', cfg.led?.bri);
+    // PINS (Persistent, optional)
+    if (cfg.pins) {
+        setVal('pins.sda', cfg.pins.i2c_sda);
+        setVal('pins.scl', cfg.pins.i2c_scl);
+        setVal('pins.btn', cfg.pins.func_btn);
+        setVal('pins.chin', cfg.pins.touch_chin);
+        setVal('pins.bclk', cfg.pins.i2s_bclk);
+        setVal('pins.lrc', cfg.pins.i2s_lrc);
+        setVal('pins.do', cfg.pins.i2s_do);
+        setVal('pins.di', cfg.pins.i2s_di);
+        setVal('pins.led', cfg.pins.led);
+        setVal('pins.vbat', cfg.pins.vbat);
+        setVal('pins.vl', cfg.pins.vibro_left);
+        setVal('pins.vr', cfg.pins.vibro_right);
+    }
+    
+    // AUDIO (Dynamic)
+    setVal('audio.vol', cfg.audio?.volume);
+    setCheck('audio.mic_log', cfg.audio?.mic_log_enabled); // Check key name match
+    
+    // HAPTIC (Dynamic)
+    setVal('haptic.int', cfg.haptic?.intensity);
+    
+    // LED (Dynamic)
+    setVal('led.bri', cfg.led?.brightness);
     setVal('led.r', cfg.led?.r);
     setVal('led.g', cfg.led?.g);
     setVal('led.b', cfg.led?.b);
     
-    setVal('screen.con', cfg.screen?.con);
-    setCheck('screen.flip', cfg.screen?.flip);
-    
-    setVal('power.idle_ms', cfg.power?.idle_ms);
-    setVal('power.sleep_ms', cfg.power?.sleep_ms);
+    // POWER (Persistent)
+    setVal('power.idle_ms', cfg.power?.idle_timeout_ms);
+    setVal('power.sleep_ms', cfg.power?.sleep_timeout_ms);
     
     // Trigger range displays
     document.querySelectorAll('input[type=range]').forEach(el => el.dispatchEvent(new Event('input')));
 }
 
-// Saving
-els.btnSave.addEventListener('click', async () => {
+// Debounce helper
+function debounce(func, wait) {
+    let timeout;
+    return function(...args) {
+        clearTimeout(timeout);
+        timeout = setTimeout(() => func.apply(this, args), wait);
+    };
+}
+
+// Preview Logic
+const sendPreview = debounce(async () => {
+    if (!connected) return;
+    
     const config = {
+        save: false, // Don't write to NVS
         cmd: "set_config",
-        bot_name: getVal('bot_name'),
-        eye: {
-            width: getVal('eye.width'),
-            height: getVal('eye.height'),
-            radius: getVal('eye.radius'),
-            spacing: getVal('eye.spacing'),
-            auto_blink: getCheck('eye.auto_blink'),
-            idle_mode: getCheck('eye.idle_mode'),
-            sweat: getCheck('eye.sweat'),
-            cyclops: getCheck('eye.cyclops'),
-            blink_int: getVal('eye.blink_int'),
-            idle_int: getVal('eye.idle_int'),
-        },
-        motion: {
-            tilt: getVal('motion.tilt'),
-            shake: getVal('motion.shake'),
-            furious: getVal('motion.furious'),
-            tap: getVal('motion.tap'),
-        },
-        power: {
-            idle_ms: getVal('power.idle_ms'),
-            sleep_ms: getVal('power.sleep_ms'),
+        face: {
+            width: getVal('face.width'),
+            height: getVal('face.height'),
+            radius: getVal('face.radius'),
+            spacing: getVal('face.spacing'),
+            auto_blink: getCheck('face.auto_blink'),
+            idle_mode: getCheck('face.idle_mode'),
+            blink_interval: getVal('face.blink_int'),
+            idle_interval: getVal('face.idle_int'),
+            contrast: getVal('screen.con')
         },
         audio: {
-            vol: getVal('audio.vol'),
-            mic_t: getVal('audio.mic_t')
+            volume: getVal('audio.vol'),
+            mic_log: getCheck('audio.mic_log') 
+        },
+        haptic: {
+            intensity: getVal('haptic.int')
         },
         led: {
-            bri: getVal('led.bri'),
+            brightness: getVal('led.bri'),
             r: getVal('led.r'),
             g: getVal('led.g'),
             b: getVal('led.b'),
-        },
-        screen: {
-            con: getVal('screen.con'),
-            flip: getCheck('screen.flip')
-        },
-        haptic_int: getVal('haptic_int')
+        }
     };
-    
-    const originalText = els.btnSave.innerHTML;
-    els.btnSave.textContent = "SYNCING...";
-    els.btnSave.disabled = true;
     
     await fetch(`${API}/config`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(config)
     });
+}, 200);
+
+// Bind Preview to Inputs
+function setupSyncInputs() {
+    const inputs = document.querySelectorAll('input, select');
+    inputs.forEach(el => {
+        el.addEventListener('input', sendPreview);
+    });
+}
+
+// Test Face Logic
+async function testFace(val) {
+    if (!connected) return;
+    await fetch(`${API}/config`, { // Re-using config endpoint but sending command object
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ cmd: "test_face", val: val })
+    });
+}
+
+// Saving
+els.btnSave.addEventListener('click', async () => {
+    const config = {
+        cmd: "set_config",
+        save: true,
+        bot_name: getVal('bot_name'),
+        face: {
+            width: getVal('face.width'),
+            height: getVal('face.height'),
+            radius: getVal('face.radius'),
+            spacing: getVal('face.spacing'),
+            auto_blink: getCheck('face.auto_blink'),
+            idle_mode: getCheck('face.idle_mode'),
+            blink_interval: getVal('face.blink_int'),
+            idle_interval: getVal('face.idle_int'),
+            contrast: getVal('screen.con')
+        },
+        motion: {
+            tilt_deg: getVal('motion.tilt'),
+            shake_angry_dps: getVal('motion.shake'),
+            shake_furious_dps: getVal('motion.furious'),
+            tap_spike_dps: getVal('motion.tap'),
+        },
+        pins: {
+            i2c_sda: getVal('pins.sda'),
+            i2c_scl: getVal('pins.scl'),
+            func_btn: getVal('pins.btn'),
+            touch_chin: getVal('pins.chin'),
+            i2s_bclk: getVal('pins.bclk'),
+            i2s_lrc: getVal('pins.lrc'),
+            i2s_do: getVal('pins.do'),
+            i2s_di: getVal('pins.di'),
+            led: getVal('pins.led'),
+            vbat: getVal('pins.vbat'),
+            vibro_left: getVal('pins.vl'),
+            vibro_right: getVal('pins.vr'),
+        },
+        power: {
+            idle_timeout_ms: getVal('power.idle_ms'),
+            sleep_timeout_ms: getVal('power.sleep_ms'),
+        },
+        audio: {
+            volume: getVal('audio.vol'),
+            mic_log: getCheck('audio.mic_log')
+        },
+        haptic: {
+            intensity: getVal('haptic.int')
+        },
+        led: {
+            brightness: getVal('led.bri'),
+            r: getVal('led.r'),
+            g: getVal('led.g'),
+            b: getVal('led.b'),
+        }
+    };
     
-    setTimeout(() => {
+    // UI Feedback
+    const originalText = els.btnSave.innerHTML;
+    els.btnSave.textContent = "SAVING...";
+    els.btnSave.disabled = true;
+    
+    const res = await fetch(`${API}/config`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(config)
+    });
+    
+    // Parse response to see if reboot needed
+    const data = await res.json();
+    
+    if (data.msg && data.msg.includes("Reboot required")) {
         els.btnSave.textContent = "REBOOTING...";
+        setTimeout(() => {
+            // Assume firmware handles reboot if command was sent. 
+            // If firmware waits for explicit reboot, we might need another call.
+            // But Settings::fromJson (firmware) saves but doesn't auto-reboot unless code changed.
+            // DogePet.ino logic: if Settings::pendingReboot -> Serial.print "Reboot required".
+            // It does NOT auto-reboot. User must click Reboot.
+            
+            // Wait, previous logic had auto-reboot. 
+            // In DogePet.ino, if pendingReboot was true, it just printed.
+            // We should ideally prompt user or just let them click 'Reboot'.
+            
+            els.btnSave.textContent = "REBOOT NEEDED";
+            setTimeout(() => {
+                els.btnSave.innerHTML = originalText;
+                els.btnSave.disabled = false;
+            }, 3000);
+        }, 1000);
+    } else {
+        els.btnSave.textContent = "SAVED";
         setTimeout(() => {
             els.btnSave.innerHTML = originalText;
             els.btnSave.disabled = false;
-        }, 3000);
-    }, 1000);
+        }, 1000);
+    }
 });
 
 // Reboot
