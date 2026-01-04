@@ -60,6 +60,9 @@ static constexpr int8_t  DEFAULT_EYE_OFFSET_Y      = 0;
 // Eye Animation Timing (seconds for RoboEyes)
 static constexpr bool    DEFAULT_EYE_AUTO_BLINK  = true;
 static constexpr bool    DEFAULT_EYE_IDLE_MODE   = true;
+static constexpr bool    DEFAULT_EYE_CURIOUS_MODE   = true;
+static constexpr uint8_t DEFAULT_CURIOUS_INTERVAL  = 5;
+static constexpr uint8_t DEFAULT_CURIOUS_VARIATION = 2;
 static constexpr uint8_t DEFAULT_BLINK_INTERVAL  = 3;
 static constexpr uint8_t DEFAULT_BLINK_VARIATION = 1;
 static constexpr uint8_t DEFAULT_IDLE_INTERVAL   = 4;
@@ -95,10 +98,12 @@ static constexpr uint8_t LED_COLOR_B    = 0;
 // =============================================================================
 static constexpr float   VBAT_MIN_V      = 3.2f;
 static constexpr float   VBAT_MAX_V      = 4.05f;
-static constexpr float   VBAT_CAL        = 1.0518f;
+static constexpr float   VBAT_CAL        = 1.073f;  // Calibrated: multimeter 3.55V = system 3.48V
 static constexpr uint8_t VBAT_SAMPLES    = 12;
 static constexpr uint8_t LOW_BATT_WARN   = 15;
 static constexpr uint8_t CRIT_BATT_WARN  = 5;
+static constexpr uint32_t VBAT_LOG_INTERVAL_MS = 30000;  // Log battery status every 30 seconds
+static constexpr uint32_t VBAT_READ_INTERVAL_MS = 1000;  // Read battery voltage every 1 second
 
 // =============================================================================
 // TIMING & BEHAVIOR

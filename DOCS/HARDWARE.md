@@ -197,13 +197,28 @@ Right Gate →    GPIO 3
 
 **Note:** Do NOT connect motors directly to GPIO! Use a transistor (2N2222, 2N7000) or motor driver (DRV8833) with flyback diode.
 
-**Haptic Patterns (80-100% Intensity Range, PWM 204-255):**
-- **Click**: Short 60ms pulse at 90% intensity (PWM 230)
-- **Double Click**: Heartbeat pattern (lub-DUB) - 82-100% intensity (PWM 210-255)
-- **Alarm**: Rapid alternating left/right at 90% intensity (PWM 230)
-- **Purr**: Cat-like 5-phase rhythmic pattern (80-100% intensity, PWM 204-255)
-  - Pattern: Medium (85%) → Strong (100%) → Medium (85%) → Soft (80%) → Medium (85%)
-  - Timing: 90-130ms per phase for natural feel
+**Haptic Patterns (Non-Blocking, 80-100% PWM Range: 204-255):**
+- **TAP (click)**: Single pulse with ramp-up (50ms) for snappy feedback - 80-100% intensity
+- **DOUBLE-TAP (doubleClick)**: Heartbeat rhythm pattern
+  - LUB: 60ms @ 95% intensity (PWM 242)
+  - Gap: 50ms silence
+  - DUB: 90ms @ 100% intensity (PWM 255)
+  - Total: ~200ms for romantic heartbeat feel
+- **ALARM (alarm)**: Alternating left-right urgent pattern
+  - 6 pulses (left-right-left-right-left-right) × 80ms = 480ms total
+  - 100% intensity (PWM 255) for urgency
+- **PURR**: Continuous 5-phase rhythmic cycle (non-blocking)
+  - Phase 0: 120ms @ 85% (PWM 217)
+  - Phase 1: 100ms @ 100% (PWM 255)
+  - Phase 2: 110ms @ 85% (PWM 217)
+  - Phase 3: 90ms @ 80% (PWM 204)
+  - Phase 4: 130ms @ 85% (PWM 217)
+  - Loops continuously while petting for natural cat-like feel
+
+**Performance:**
+- All patterns use phase-based state machine (no blocking delays)
+- Main loop overhead: ~1ms per iteration
+- Intensity controlled dynamically via `Settings::haptic.intensity` (0-255 → 204-255 PWM)
 
 ---
 
@@ -227,18 +242,24 @@ I/O    →    GPIO 41
 ```
 
 **Touch Events (All with Haptic + Sound Feedback):**
-- **Tap** (< 300ms): Eye blink + haptic click (90% intensity) + tap sound
-- **Hold** (> 400ms): Triggers "petting" mode with happy eyes + haptic purr (80-100% intensity) + happy sound
+- **Tap** (< 300ms): Eye blink + haptic TAP (50ms ramp-up) + tap sound
+- **Hold** (> 400ms): Triggers "petting" mode with happy eyes + haptic PURR (80-100% intensity) + happy sound
 - **Hold End**: Haptic purr stops + content sound
 
 **Optional Chin Touch:**
 A second touch sensor can be added on GPIO 1. Enable with `#define TOUCH_CHIN_ENABLED` in `config.h`.
 
 **Chin Behaviors (All with Haptic + Sound Feedback):**
-- **Chin Tap**: Playful wink + haptic click (90% intensity) + chirp sound
-- **Chin Hold (scratches)**: Blissfully closes eyes + haptic purr (80-100% intensity) + purr sound
+- **Chin Tap**: Playful wink + haptic TAP (50ms ramp-up) + chirp sound
+- **Chin Hold (scratches)**: Blissfully closes eyes + haptic PURR (80-100% intensity) + purr sound
 - **Chin Hold End**: Eyes open + haptic purr stops + satisfied sound
-- **Combo (Head + Chin)**: Overwhelmed with love! Confused happy face + haptic double-click heartbeat (82-100% intensity) + surprise beep
+
+**Combo Expression (Head + Chin simultaneously):**
+- **Both Held Together**: **CONFUSED FACE** 😕
+  - Eyes show confused mood
+  - Horizontal eye flicker animation
+  - Haptic DOUBLE-TAP heartbeat rhythm (200ms)
+  - Surprise beep sound effect
 
 ---
 
@@ -249,7 +270,13 @@ A second touch sensor can be added on GPIO 1. Enable with `#define TOUCH_CHIN_EN
 | **Type** | Voltage divider to ADC |
 | **ADC Pin** | GPIO 15 |
 | **Range** | 3.2V - 4.05V (Li-Po) |
-| **Calibration** | 1.0518 multiplier |
+| **Calibration** | 1.0518 multiplier (`VBAT_CAL`) |
+| **ADC Resolution** | 12-bit (0-4095) |
+| **ADC Attenuation** | 11dB (up to ~3.6V on pin before divider) |
+| **Sampling** | Averaged over `VBAT_SAMPLES` (12 samples) |
+| **Read Interval** | Every `VBAT_READ_INTERVAL_MS` (1 second) |
+| **Log Interval** | Every `VBAT_LOG_INTERVAL_MS` (30 seconds) |
+| **Warnings** | Low battery at `LOW_BATT_WARN`% (15%), Critical at `CRIT_BATT_WARN`% (5%) |
 
 **Voltage Divider (for 4.2V Li-Po):**
 ```
@@ -261,8 +288,28 @@ VBAT ──┬── R1 (10kΩ) ──┬── R2 (10kΩ) ── GND
 
 **Calculation:**
 ```
-V_measured = ADC_raw × (3.3V / 4095) × 2 × VBAT_CAL
+V_battery = (ADC_raw / 4095) × 3.3V × 2.0 × VBAT_CAL
 ```
+
+**Percentage Calculation:**
+```
+percent = ((V_battery - VBAT_MIN_V) / (VBAT_MAX_V - VBAT_MIN_V)) × 100
+```
+
+**Features:**
+- **Cached Readings**: Voltage and percentage are cached and updated every 1 second (`VBAT_READ_INTERVAL_MS`) to avoid excessive ADC reads
+- **Automatic Logging**: Battery status is automatically logged to serial every 30 seconds (`VBAT_LOG_INTERVAL_MS`) in JSON format:
+  ```json
+  {"status":"data","type":"power","voltage":3.85,"percent":72,"state":0}
+  ```
+- **Efficient**: Uses averaging (12 samples per reading) for stable readings with minimal delay
+- **Configurable**: All thresholds, intervals, and calibration values defined in `config.h`:
+  - `VBAT_MIN_V`: Minimum battery voltage (3.2V default)
+  - `VBAT_MAX_V`: Maximum battery voltage (4.05V default)
+  - `VBAT_CAL`: Calibration multiplier (1.0518 default)
+  - `VBAT_SAMPLES`: Number of ADC samples to average (12 default)
+  - `VBAT_READ_INTERVAL_MS`: Battery reading update interval (1000ms default)
+  - `VBAT_LOG_INTERVAL_MS`: Battery status logging interval (30000ms default)
 
 ---
 

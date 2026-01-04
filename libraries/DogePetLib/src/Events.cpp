@@ -9,14 +9,14 @@
 
 static bool isPetting = false;
 static bool isChinScratching = false;
-static bool comboLoveTriggered = false;
+static bool comboConfusedTriggered = false;
 static uint32_t confusedStartMs = 0;
 static constexpr uint32_t CONFUSED_MAX_MS = 2000;
 
 void Events::init() {
     isPetting = false;
     isChinScratching = false;
-    comboLoveTriggered = false;
+    comboConfusedTriggered = false;
     confusedStartMs = 0;
 }
 
@@ -77,25 +77,24 @@ void Events::update() {
     #ifdef TOUCH_CHIN_ENABLED
     TouchEvent chinEvent = Touch::getChinEvent();
     
-    // Combo: Both head AND chin
+    // Combo: Both head AND chin - Confused expression
     if (isPetting && (chinEvent == TouchEvent::HOLD_START || chinEvent == TouchEvent::HOLDING)) {
-        if (!comboLoveTriggered) {
+        if (!comboConfusedTriggered) {
+            // Show confused face
             eyes->confused = true;
-            confusedStartMs = millis();
-            eyes->happy = true;
+            eyes->setHFlicker(true, 3);
             Haptics::doubleClick();
             Audio::surpriseBeep();
-            Serial.println("{\"status\":\"event\",\"type\":\"combo_love\"}");
-            comboLoveTriggered = true;
+            Serial.println("{\"status\":\"event\",\"type\":\"combo_confused\"}");
+            comboConfusedTriggered = true;
         }
         Power::onActivity();
     } else {
-        if (comboLoveTriggered) {
+        if (comboConfusedTriggered) {
             eyes->confused = false;
-            eyes->setHFlicker(0, 0);
-            confusedStartMs = 0;
+            eyes->setHFlicker(false);
         }
-        comboLoveTriggered = false;
+        comboConfusedTriggered = false;
     }
     
     switch (chinEvent) {

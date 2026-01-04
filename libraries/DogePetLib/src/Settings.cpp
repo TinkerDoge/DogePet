@@ -130,7 +130,7 @@ void Settings::loadFromNVS() {
     face.blinkInterval = prefs.getUChar("f_blink_int", DEFAULT_BLINK_INTERVAL);
     face.idleInterval  = prefs.getUChar("f_idle_int", DEFAULT_IDLE_INTERVAL);
     face.contrast      = prefs.getUChar("f_contrast", DEFAULT_OLED_CONTRAST);
-    face.curious       = prefs.getBool("f_curious", false);
+    face.curious       = prefs.getBool("f_curious", DEFAULT_EYE_CURIOUS_MODE);
     face.sweat         = prefs.getBool("f_sweat", false);
     
     // Audio (Dynamic)

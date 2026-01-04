@@ -17,9 +17,9 @@ These settings apply immediately without requiring a reboot:
 
 | Category | Fields | Description |
 |:---------|:-------|:------------|
-| **face** | width, height, radius, spacing, auto_blink, idle_mode, blink_interval, idle_interval, contrast | Eye appearance and animation |
+| **face** | width, height, radius, spacing, auto_blink, idle_mode, blink_interval, idle_interval, contrast, curious, sweat | Eye appearance, animation, and mood flags |
 | **audio** | volume, mic_log | Sound volume and mic logging |
-| **haptic** | intensity | Vibration motor strength |
+| **haptic** | intensity | Vibration motor strength (0-255, scaled to 80-100% PWM) |
 | **led** | brightness, r, g, b | Status LED color and brightness |
 
 ### Persistent Settings (Require Reboot)
@@ -57,7 +57,9 @@ Request the complete settings object.
       "idle_mode": true,
       "blink_interval": 3,
       "idle_interval": 4,
-      "contrast": 255
+      "contrast": 255,
+      "curious": true,
+      "sweat": false
     },
     "audio": {
       "volume": 100,
@@ -192,10 +194,23 @@ The bot sends periodic status updates and event notifications.
 {"status": "event", "type": "tap", "source": "head"}
 {"status": "event", "type": "petting_start", "source": "head"}
 {"status": "event", "type": "petting_end", "duration_ms": 3500}
+{"status": "event", "type": "wink", "source": "chin"}
+{"status": "event", "type": "chin_scratching_start"}
+{"status": "event", "type": "chin_scratching_end"}
+{"status": "event", "type": "combo_confused"}
 {"status": "event", "type": "shake"}
 {"status": "event", "type": "wake"}
 {"status": "event", "type": "sleep"}
 ```
+
+**Event Descriptions:**
+- `tap`: Quick touch on sensor
+- `petting_start`: User holding head sensor (petting mode start)
+- `petting_end`: Released head sensor after petting
+- `wink`: Quick tap on chin sensor
+- `chin_scratching_start`: User holding chin sensor (scratch mode start)
+- `chin_scratching_end`: Released chin sensor
+- `combo_confused`: Both head and chin held simultaneously (confused expression triggered)
 
 ### Sensor Data
 ```json
@@ -223,27 +238,35 @@ Recommend organizing settings into tabs:
    - Eye shape (radius, spacing)
    - Animation (auto_blink, idle_mode)
    - Timing (blink_interval, idle_interval)
-   - Display (contrast)
+   - Display contrast
+   - **Mood Flags:**
+     - Curious mode (enable inquisitive eye enlargement)
+     - Sweat mode (show anxious sweat drops)
 
 2. **Sound & Haptics** (Dynamic)
    - Volume slider (0-100)
-   - Haptic intensity slider (0-255)
+   - Haptic intensity slider (0-255, scaled to 80-100% motor PWM)
    - Mic logging toggle
 
 3. **LED** (Dynamic)
    - Brightness slider
    - Color picker (RGB)
 
-4. **Motion Sensitivity** (Persistent ⚠️)
+4. **Testing** (Dynamic - for preview/diagnostics)
+   - Expression tester buttons: Happy, Angry, Tired, Curious, Love, Sweat
+   - Haptic pattern tester: Click, Double-Click, Alarm, Purr
+   - Audio playback buttons: Chirp, Purr, Surprise, Yawn
+
+5. **Motion Sensitivity** (Persistent ⚠️)
    - Tilt threshold
    - Shake thresholds
    - Tap sensitivity
 
-5. **Power** (Persistent ⚠️)
+6. **Power** (Persistent ⚠️)
    - Idle timeout
    - Sleep timeout
 
-6. **Hardware Pins** (Persistent ⚠️)
+7. **Hardware Pins** (Persistent ⚠️)
    - GPIO assignments (advanced users only)
 
 ### Visual Indicators

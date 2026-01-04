@@ -37,19 +37,28 @@ The library contains all hardware modules with a single entry point:
 ## Core Modules
 
 ### 1. Face Module (`Face.h` / `Face.cpp`)
-**Responsibility**: Manages the OLED display and the procedural eye animations.
+**Responsibility**: Manages the OLED display and the procedural eye animations with mood expressions.
 
 *   **Hardware**: SH1106G OLED (I2C 0x3C).
 *   **Libraries**: `Adafruit_SH110X`, `FluxGarage_RoboEyes`.
 *   **Key Functions**:
-    *   `init()`: Initializes OLED and Eye objects.
+    *   `init()`: Initializes OLED and Eye objects with Settings defaults.
+    *   `applySettings()`: Applies dynamic face settings (size, radius, contrast, mood flags).
+    *   `update()`: Called in main loop to refresh animations.
+    *   `setMode(DisplayMode)`: Switch between Eyes, Sleep, Toast, Custom, Off modes.
     *   `showBootScreen(msg)`: Displays a splash screen with status text.
     *   `updateProgressBar(percent, status)`: Renders a loading bar during boot.
     *   `playLineAnimation()`: Runs a CRT-style line scan test.
-    *   `update()`: Called in the main loop to refresh eye animations.
     *   `showSleepFace()`: Displays closed eyes with animated Zzz.
     *   `showDimFace()`: Displays tired/droopy eyes.
     *   `showActiveFace()`: Returns to normal animated eyes.
+*   **Eye Moods** (via RoboEyes flags):
+    *   `happy`: Shows happy eyelids (lower eyelids rise up).
+    *   `angry`: Shows angry eyelids (top eyelids lower down).
+    *   `tired`: Shows tired eyelids (top eyelids droop down).
+    *   `curious`: Eyes enlarge when looking left/right (inquisitive look).
+    *   `sweat`: Animated sweat drops in corners (anxious/stressed).
+*   **Settings Integration**: Loads and applies Settings for eye size, spacing, auto-blink, idle animation, contrast, and mood persistence.
 
 ### 2. Motion Module (`Motion.h` / `Motion.cpp`)
 **Responsibility**: High-level motion interpreter with event detection.
@@ -110,35 +119,54 @@ The library contains all hardware modules with a single entry point:
 ### 5. Power Module (`Power.h` / `Power.cpp`)
 **Responsibility**: Battery monitoring and power state management (sleep/wake).
 
-*   **Hardware**: Battery voltage via ADC (GPIO 15).
+*   **Hardware**: Battery voltage via ADC (GPIO 15) with voltage divider.
+*   **Battery Monitoring**:
+    *   `getVoltage()`: Returns cached battery voltage (updated every 1 second).
+    *   `getPercent()`: Returns cached battery percentage (0-100, calculated from voltage).
+    *   `logStatus()`: Manually log battery status to serial (JSON format).
+    *   Automatic periodic logging every 30 seconds via `update()`.
 *   **Key Functions**:
-    *   `init()`: Configures ADC and initializes state.
-    *   `update()`: Manages power state transitions (called in loop).
-    *   `getVoltage()`: Returns battery voltage.
-    *   `getPercent()`: Returns battery percentage (0-100).
-    *   `onActivity()` / `onMotion()` / `onLoudNoise()`: Activity tracking for sleep.
+    *   `init()`: Configures ADC (12-bit, 11dB attenuation) and initializes state. Reads battery once at startup.
+    *   `update()`: Updates battery readings, logs status periodically, and manages power state transitions (call in loop).
+    *   `onActivity()` / `onMotion()` / `onLoudNoise()`: Activity tracking for sleep/wake.
     *   `isSleeping()`: Returns true if in sleep mode.
     *   `wake()` / `sleep()`: Force state changes.
 *   **Power States**:
     *   `ACTIVE`: Normal operation.
     *   `DIM`: Screen dimmed after idle timeout (1 min).
     *   `SLEEPING`: Low power mode after sleep timeout (2 min).
+*   **Battery Reading**:
+    *   Uses averaging (`VBAT_SAMPLES` samples) for stable readings.
+    *   Cached readings updated at `VBAT_READ_INTERVAL_MS` (1 second default).
+    *   Voltage calculation: `V = (ADC_raw / 4095) * 3.3V * 2.0 * VBAT_CAL`
+    *   Percentage: Linear interpolation between `VBAT_MIN_V` and `VBAT_MAX_V`.
+*   **Logging**:
+    *   Automatic JSON logging every `VBAT_LOG_INTERVAL_MS` (30 seconds default).
+    *   Format: `{"status":"data","type":"power","voltage":3.85,"percent":72,"state":0}`
 *   **Callbacks**: `onSleepCallback`, `onWakeCallback`, `onDimCallback`.
 
 ### 6. Haptics Module (`Haptics.h` / `Haptics.cpp`)
-**Responsibility**: Controls vibration motors for haptic feedback.
+**Responsibility**: Controls vibration motors for haptic feedback with non-blocking patterns.
 
-*   **Hardware**: 2x ERM vibration motors (GPIO 3, 4) via PWM.
-*   **Intensity Range**: All haptic patterns use 80-100% intensity (PWM 204-255) optimized for weaker motors.
+*   **Hardware**: 2x ERM vibration motors (GPIO 3, 4) via PWM (LEDC).
+*   **Intensity Range**: All patterns scaled to 80-100% PWM (204-255) optimized for weak motors, controlled via `Settings::haptic.intensity`.
+*   **Non-Blocking Architecture**: Uses phase-based state machine instead of blocking delays.
 *   **Key Functions**:
     *   `init()`: Configures LEDC PWM for motor control.
-    *   `buzz(left, right, durationMs)`: Direct motor control.
-    *   `click()`: Short tactile feedback (90% intensity, 60ms pulse).
-    *   `doubleClick()`: Heartbeat pattern - lub-DUB rhythm (82-100% intensity).
-    *   `alarm()`: Urgent alternating left/right pattern (90% intensity).
-    *   `startPurr()` / `stopPurr()`: Cat-like rhythmic vibration (starts at 85% intensity).
-    *   `purrTick()`: Non-blocking purr pattern update (call in loop) - 5-phase cycle with 80-100% intensity.
-*   **Purr Pattern**: 5-phase rhythmic cycle (medium → strong → medium → soft → medium) with varied timing (90-130ms) for natural cat-like feel.
+    *   `click()`: TAP pattern - Single pulse with ramp-up (50ms) for snappy feedback on button press.
+    *   `doubleClick()`: DOUBLE-TAP pattern - Heartbeat rhythm (lub-DUB): 60ms + 50ms gap + 90ms for combo events.
+    *   `alarm()`: ALARM pattern - Alternating left/right pulses (6 × 80ms = 480ms) for urgent alerts.
+    *   `startPurr()` / `stopPurr()`: Continuous purr pattern control.
+    *   `patternTick()`: Non-blocking update function (call in loop) - Executes all active patterns without delays.
+    *   `purrTick()`: Compatibility wrapper that calls `patternTick()`.
+*   **Purr Pattern**: 5-phase rhythmic cycle
+    - Phase 0: 120ms @ 85% intensity
+    - Phase 1: 100ms @ 100% intensity  
+    - Phase 2: 110ms @ 85% intensity
+    - Phase 3: 90ms @ 80% intensity
+    - Phase 4: 130ms @ 85% intensity
+    - Loops continuously while purring for natural cat-like feel.
+*   **Performance**: Main loop overhead ~1ms per iteration (vs. 60-480ms blocking before).
 
 ### 7. Touch Module (`Touch.h` / `Touch.cpp`)
 **Responsibility**: Handles touch/button input with debounce and gesture detection.
@@ -197,22 +225,20 @@ void loop() {
     Touch::update();        // Process touch input, generate events
     
     // 2. Handle events (must be after Touch::update)
-    Events::update();       // Process touch events → haptic + sound feedback
+    Events::update();       // Process touch events → haptic + sound feedback + face expressions
     
     // 3. Update non-blocking systems
-    Haptics::purrTick();    // Update purr pattern (if active)
+    Power::update();        // Update power state
     Motion::update();       // Update motion sensor
-    Power::update();        // Update power management
-    
-    // 4. Update display and animations
-    Face::update();         // Update eye animations
+    Haptics::purrTick();    // Update ALL patterns (tap, double-tap, alarm, purr) - NON-BLOCKING
+    Face::update();         // Update face (animations)
     Animation::tick();      // Update behavior tree
 }
 ```
 
 **Why this order matters:**
 - `Touch::update()` must run before `Events::update()` because Events reads the events that Touch generates.
-- `Haptics::purrTick()` must be called every loop to maintain the non-blocking purr pattern.
+- `Haptics::purrTick()` (now `patternTick()`) must be called every loop to execute non-blocking patterns without stalling the main loop.
 
 ---
 
@@ -233,7 +259,7 @@ void loop() {
 - **Hold End**: Eyes open + haptic purr stops + satisfied sound
 
 **Combo (Head + Chin):**
-- **Both Held**: Confused happy face + haptic double-click heartbeat (82-100% intensity) + surprise beep
+- **Both Held**: Confused expression + horizontal eye flicker + haptic double-click heartbeat (85-100% intensity) + surprise beep
 
 ### Petting Behavior
 When the user holds the touch button (simulating petting the bot's head):
@@ -380,6 +406,25 @@ Face::setMode(DisplayMode::Eyes);
 
 ---
 
+## Settings System (`Settings.h` / `Settings.cpp`)
+
+**Responsibility**: Manages dynamic (runtime-applied) and persistent (NVS-saved) settings.
+
+*   **Dynamic Settings** (apply immediately, no reboot):
+    *   Face: width, height, radius, spacing, contrast, blink interval, idle interval, curious mode, sweat mode
+    *   Audio: volume (0-100), microphone logging enable/disable
+    *   Haptics: vibration intensity (0-255, scaled to 80-100% PWM)
+    *   LED: brightness, RGB color values
+*   **NVS Persistence**: Settings stored in ESP32 Preferences (namespace-based), loaded at boot with `config.h` defaults.
+*   **Key Functions**:
+    *   `begin()`: Initialize NVS and load settings.
+    *   `loadFromNVS()`: Read settings from NVS, use config.h defaults if not found.
+    *   `applyFaceSettings()`: Apply face settings to Eyes object immediately.
+    *   `applyAudioSettings()`: Apply audio settings immediately.
+    *   `applyHapticSettings()`: Apply haptic intensity immediately.
+
+---
+
 ## Configuration Defaults (`config.h`)
 
 All default values are defined in `config.h`:
@@ -391,7 +436,7 @@ All default values are defined in `config.h`:
 | **Eye Appearance** | `DEFAULT_EYE_WIDTH`, `DEFAULT_EYE_HEIGHT`, `DEFAULT_EYE_SPACING` |
 | **Audio** | `AUDIO_SAMPLE_RATE`, `DEFAULT_AUDIO_VOLUME` |
 | **Motion Thresholds** | `DEFAULT_TILT_THRESHOLD_DEG`, `DEFAULT_SHAKE_ANGRY_DPS` |
-| **Power/Battery** | `VBAT_MIN_V`, `VBAT_MAX_V`, `DEFAULT_IDLE_TIMEOUT_MS` |
+| **Power/Battery** | `VBAT_MIN_V`, `VBAT_MAX_V`, `VBAT_CAL`, `VBAT_SAMPLES`, `VBAT_READ_INTERVAL_MS`, `VBAT_LOG_INTERVAL_MS`, `DEFAULT_IDLE_TIMEOUT_MS`, `DEFAULT_SLEEP_TIMEOUT_MS` |
 | **Touch Timing** | `DEBOUNCE_MS`, `TAP_MAX_MS`, `HOLD_MIN_MS` |
 | **Debug Flags** | `ENABLE_MOTION_DEBUG`, `DEBUG_SERIAL` |
 

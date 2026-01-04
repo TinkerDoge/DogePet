@@ -51,6 +51,13 @@ void Face::applySettings() {
     eyes.curious = Settings::face.curious;
     eyes.sweat = Settings::face.sweat;
     
+    // Apply curious mode timing (if enabled, eyes will display curious expression with timing)
+    if (Settings::face.curious) {
+        eyes.setCuriosity(true);
+    } else {
+        eyes.setCuriosity(false);
+    }
+    
     Serial.println("{\"status\":\"info\",\"msg\":\"Face settings applied\"}");
 }
 
@@ -279,3 +286,5 @@ roboEyes* Face::getEyes() {
 Adafruit_SH1106G* Face::getDisplay() {
     return &display;
 }
+
+

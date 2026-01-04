@@ -38,8 +38,18 @@ public:
     
 private:
     static float readADC();
+    static void updateBatteryReading();
+    static int calculatePercent(float voltage);
+    
     static PowerState state;
     static uint32_t lastActivityMs;
     static uint32_t lastMotionMs;
     static uint32_t lastNoiseMs;
+    
+    // Battery monitoring
+    static float cachedVoltage;
+    static int cachedPercent;
+    static uint32_t lastVbatReadMs;
+    static uint32_t lastVbatLogMs;
+    static bool batteryInitialized;
 };
