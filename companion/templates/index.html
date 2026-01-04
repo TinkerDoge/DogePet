@@ -3,174 +3,174 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DogePet Manager 95</title>
+    <title>DogePet v4.1 Digital</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
 </head>
 <body>
+    <!-- Decorative Icons -->
+    <div class="bg-decor icon-folder">📂</div>
+    <div class="bg-decor icon-trash">🗑️</div>
+    <div class="bg-decor icon-disk">💾</div>
+    <div class="bg-decor icon-comp">💻</div>
+
     <div class="window">
+        <!-- Speech Bubble Decoration -->
+        <div class="speech-bubble">HELLO! SYSTEM READY!</div>
+
         <!-- Title Bar -->
         <header class="window-header">
             <div class="window-title">
-                <span style="font-size: 1.2rem;">🐶</span> DogePet Manager v4.1 - [System Dashboard]
+                <span>🦴</span> DOGEPET MANAGER DIGITAL v4.1
             </div>
             <div class="window-controls">
                 <div class="win-btn">_</div>
-                <div class="win-btn">□</div>
-                <div class="win-btn" style="background: #f880a0;">X</div>
+                <div class="win-btn" style="background:#f1ef72;">?</div>
+                <div class="win-btn" style="background:#f880a0;">X</div>
             </div>
         </header>
 
         <!-- Connection Strip -->
-        <div class="toolbar" style="background: #e0e0e0; justify-content: space-between;">
-            <div class="conn-panel">
-                <span>PORT:</span>
-                <select id="portSelect" style="width: 150px;">
-                    <option value="" disabled selected>Auto-detecting...</option>
-                </select>
-                <button id="refreshBtn" class="win-btn" style="width: auto; padding: 0 8px;">↻</button>
-                <button id="connectBtn" class="tab-btn" style="padding: 2px 10px; margin-left: 10px;">Connect</button>
-            </div>
-            <div class="status-inset">
-                STATUS: <span id="statusIndicator" class="status-offline">DISCONNECTED</span>
+        <div class="conn-strip">
+            <div style="font-weight:900;">PORT SCAN:</div>
+            <select id="portSelect" style="width: 180px;">
+                <option value="" disabled selected>SCANNING...</option>
+            </select>
+            <button id="refreshBtn" class="win-btn" style="width:auto; padding:0 10px;">↻</button>
+            <button id="connectBtn" class="tab-btn" style="padding:4px 20px;">LINK SYSTEM</button>
+            <div style="margin-left: auto; font-weight:900;">
+                STATUS: <span id="statusIndicator" class="status-offline">OFFLINE</span>
             </div>
         </div>
 
         <!-- Tab Bar -->
         <div class="toolbar">
-            <button class="tab-btn active" data-tab="appearance">Appearance</button>
-            <button class="tab-btn" data-tab="audio">Audio/Haptic</button>
-            <button class="tab-btn" data-tab="led">Lighting</button>
-            <button class="tab-btn" data-tab="motion">Motion/Power</button>
-            <button class="tab-btn" data-tab="pins">Pins</button>
-            <button class="tab-btn" data-tab="testing">Diagnostics</button>
+            <button class="tab-btn active" data-tab="appearance">VISUALS</button>
+            <button class="tab-btn" data-tab="audio">AUDIO/SFX</button>
+            <button class="tab-btn" data-tab="motion">KINETICS</button>
+            <button class="tab-btn" data-tab="pins">HARDWARE</button>
+            <button class="tab-btn" data-tab="testing">LABS</button>
         </div>
 
-        <!-- Main Body -->
         <main id="mainContent" class="main-content disabled">
             
             <!-- APPEARANCE -->
             <div id="appearance" class="tab-content active">
                 <div class="panel">
-                    <div class="panel-header" style="background: var(--ui-blue);">Eye Configuration</div>
+                    <div class="panel-header">EYE GEOMETRY</div>
                     <div class="panel-body">
                         <div class="form-grid">
-                            <div class="form-group"><label>Width</label><input type="number" id="eyeWidth"></div>
-                            <div class="form-group"><label>Height</label><input type="number" id="eyeHeight"></div>
-                            <div class="form-group"><label>Radius</label><input type="number" id="eyeRadius"></div>
-                            <div class="form-group"><label>Spacing</label><input type="number" id="eyeSpacing"></div>
+                            <div class="form-group"><label>WIDTH</label><input type="number" id="eyeWidth"></div>
+                            <div class="form-group"><label>HEIGHT</label><input type="number" id="eyeHeight"></div>
+                            <div class="form-group"><label>RADIUS</label><input type="number" id="eyeRadius"></div>
+                            <div class="form-group"><label>SPACING</label><input type="number" id="eyeSpacing"></div>
                         </div>
                     </div>
                 </div>
 
                 <div class="panel">
-                    <div class="panel-header" style="background: var(--ui-orange);">Behavior Loop</div>
+                    <div class="panel-header">BEHAVIOR LOOPS</div>
                     <div class="panel-body">
                         <div class="form-grid">
-                            <div class="form-group"><label>Blink (s)</label><input type="number" id="blinkInterval"></div>
-                            <div class="form-group"><label>Idle (s)</label><input type="number" id="idleInterval"></div>
+                            <div class="form-group"><label>BLINK (s)</label><input type="number" id="blinkInterval"></div>
+                            <div class="form-group"><label>IDLE (s)</label><input type="number" id="idleInterval"></div>
                             <div class="form-group" style="display:flex; align-items:center; gap:10px;">
-                                <input type="checkbox" id="autoBlink" style="width: 20px; height: 20px;">
-                                <label for="autoBlink">Auto Blink</label>
+                                <input type="checkbox" id="autoBlink" style="width: 24px; height: 24px;">
+                                <label for="autoBlink">AUTO-BLINK</label>
                             </div>
                         </div>
-                        <hr style="margin: 15px 0; border: 1px dashed black;">
-                        <div class="form-grid">
+                        <div class="form-grid" style="margin-top:20px; border-top: 1px dashed #ccc; padding-top:20px;">
                             <div class="form-group" style="display:flex; align-items:center; gap:10px;">
-                                <input type="checkbox" id="curiousMode" style="width: 20px; height: 20px;">
-                                <label for="curiousMode">Curious Mode</label>
+                                <input type="checkbox" id="curiousMode" style="width: 24px; height: 24px;">
+                                <label for="curiousMode">CURIOUS MODE</label>
                             </div>
-                            <div class="form-group"><label>Curious Int (s)</label><input type="number" id="curiousInterval"></div>
-                            <div class="form-group"><label>Variation (s)</label><input type="number" id="curiousVariation"></div>
+                            <div class="form-group"><label>INTERVAL</label><input type="number" id="curiousInterval"></div>
+                            <div class="form-group"><label>VARIATION</label><input type="number" id="curiousVariation"></div>
                         </div>
                     </div>
                 </div>
-                <button id="saveAppearance" class="action-btn">Update Display Settings</button>
+                <button id="saveAppearance" class="action-btn" style="background:var(--ui-orange)">UPLOAD VISUAL DATA</button>
             </div>
 
             <!-- AUDIO -->
             <div id="audio" class="tab-content">
                 <div class="panel">
-                    <div class="panel-header">Oscillator & Speaker</div>
+                    <div class="panel-header">SOUND BLASTER</div>
                     <div class="panel-body">
-                        <label>Main Volume: <span id="volValue">50</span>%</label>
+                        <label>SYNTH VOLUME: <span id="volValue">50</span>%</label>
                         <input type="range" id="volume" min="0" max="100">
-                        <div style="margin-top: 15px;">
-                            <input type="checkbox" id="micLog"> <label style="display:inline;">Enable Mic Telemetry</label>
+                        <div style="margin-top:20px;">
+                            <input type="checkbox" id="micLog" style="width:20px; height:20px;"> <label style="display:inline;">ENABLE MIC MONITOR</label>
                         </div>
                     </div>
                 </div>
                 <div class="panel">
-                    <div class="panel-header" style="background: var(--ui-pink);">Haptic Engines</div>
+                    <div class="panel-header">RUMBLE PACK</div>
                     <div class="panel-body">
-                        <label>Intensity: <span id="hapValue">255</span></label>
+                        <label>VIBRATION INTENSITY: <span id="hapValue">255</span></label>
                         <input type="range" id="hapticIntensity" min="0" max="255">
                     </div>
                 </div>
-                <button id="saveAudio" class="action-btn">Apply Audio Config</button>
-            </div>
-
-            <!-- LED -->
-            <div id="led" class="tab-content">
                 <div class="panel">
-                    <div class="panel-header" style="background: var(--win-blue); color: white;">Status LED</div>
+                    <div class="panel-header">LIGHTING REGISTER</div>
                     <div class="panel-body">
-                        <div class="form-group"><label>Brightness</label><input type="range" id="ledBright" min="0" max="255"></div>
-                        <div class="form-group"><label>Fixed Color</label><input type="color" id="ledColor" style="height: 60px; padding: 0;"></div>
+                        <div class="form-grid">
+                            <div class="form-group"><label>LED BRIGHTNESS</label><input type="range" id="ledBright" min="0" max="255"></div>
+                            <div class="form-group"><label>CHASSIS COLOR</label><input type="color" id="ledColor" style="height:50px; padding:0;"></div>
+                        </div>
                     </div>
                 </div>
-                <button id="saveLed" class="action-btn">Update LED</button>
+                <button id="saveAudio" class="action-btn">APPLY MEDIA CONFIG</button>
             </div>
 
             <!-- MOTION -->
             <div id="motion" class="tab-content">
                 <div class="panel">
-                    <div class="panel-header" style="background: red; color: white;">IMU / Power [Flash Warning]</div>
+                    <div class="panel-header" style="background:var(--ui-danger); color:white;">KINETICS & POWER [NVS]</div>
                     <div class="panel-body">
                         <div class="form-grid">
-                            <div class="form-group"><label>Tilt Angle (°)</label><input type="number" id="tiltDeg"></div>
-                            <div class="form-group"><label>Tap Sensitivity</label><input type="number" id="tapSpike"></div>
-                            <div class="form-group"><label>Angry DPS</label><input type="number" id="shakeAngry"></div>
-                            <div class="form-group"><label>Furious DPS</label><input type="number" id="shakeFurious"></div>
+                            <div class="form-group"><label>TILT THRESH (°)</label><input type="number" id="tiltDeg"></div>
+                            <div class="form-group"><label>TAP FORCE</label><input type="number" id="tapSpike"></div>
+                            <div class="form-group"><label>SHAKE ANGRY</label><input type="number" id="shakeAngry"></div>
+                            <div class="form-group"><label>SHAKE FURIOUS</label><input type="number" id="shakeFurious"></div>
                         </div>
-                        <hr style="margin: 20px 0; border: 1px dashed black;">
-                        <div class="form-grid">
-                            <div class="form-group"><label>Idle (ms)</label><input type="number" id="idleTimeout"></div>
-                            <div class="form-group"><label>Sleep (ms)</label><input type="number" id="sleepTimeout"></div>
+                        <div class="form-grid" style="margin-top:20px; border-top: 1px dashed #ccc; padding-top:20px;">
+                            <div class="form-group"><label>IDLE TIMEOUT (ms)</label><input type="number" id="idleTimeout"></div>
+                            <div class="form-group"><label>SLEEP TIMEOUT (ms)</label><input type="number" id="sleepTimeout"></div>
                         </div>
                     </div>
                 </div>
-                <button id="saveMotion" class="action-btn warning">Write & Reboot</button>
+                <button id="saveMotion" class="action-btn warning">WRITE TO FLASH & REBOOT</button>
             </div>
 
             <!-- PINS -->
             <div id="pins" class="tab-content">
                 <div class="panel">
-                    <div class="panel-header" style="background: var(--win-black); color: white;">Pin Assignment Map</div>
+                    <div class="panel-header" style="background:var(--win-border); color:var(--ui-cream);">I/O PIN MAP [DANGER]</div>
                     <div class="panel-body">
                         <div class="form-grid">
-                            <div class="form-group"><label>SDA</label><input type="number" id="pinSda"></div>
-                            <div class="form-group"><label>SCL</label><input type="number" id="pinScl"></div>
-                            <div class="form-group"><label>BTN</label><input type="number" id="pinBtn"></div>
-                            <div class="form-group"><label>CHIN</label><input type="number" id="pinChin"></div>
-                            <div class="form-group"><label>LED</label><input type="number" id="pinLed"></div>
-                            <div class="form-group"><label>BCLK</label><input type="number" id="pinBclk"></div>
-                            <div class="form-group"><label>LRC</label><input type="number" id="pinLrc"></div>
-                            <div class="form-group"><label>DOUT</label><input type="number" id="pinDo"></div>
-                            <div class="form-group"><label>DIN</label><input type="number" id="pinDi"></div>
-                            <div class="form-group"><label>VBAT</label><input type="number" id="pinVbat"></div>
-                            <div class="form-group"><label>VIBRO L</label><input type="number" id="pinVl"></div>
-                            <div class="form-group"><label>VIBRO R</label><input type="number" id="pinVr"></div>
+                            <div class="form-group"><label>I2C SDA</label><input type="number" id="pinSda"></div>
+                            <div class="form-group"><label>I2C SCL</label><input type="number" id="pinScl"></div>
+                            <div class="form-group"><label>FUNC BTN</label><input type="number" id="pinBtn"></div>
+                            <div class="form-group"><label>CHIN TCH</label><input type="number" id="pinChin"></div>
+                            <div class="form-group"><label>LED OUT</label><input type="number" id="pinLed"></div>
+                            <div class="form-group"><label>I2S BCLK</label><input type="number" id="pinBclk"></div>
+                            <div class="form-group"><label>I2S LRC</label><input type="number" id="pinLrc"></div>
+                            <div class="form-group"><label>I2S DOUT</label><input type="number" id="pinDo"></div>
+                            <div class="form-group"><label>I2S DIN</label><input type="number" id="pinDi"></div>
+                            <div class="form-group"><label>VBAT DIV</label><input type="number" id="pinVbat"></div>
+                            <div class="form-group"><label>VIB L</label><input type="number" id="pinVl"></div>
+                            <div class="form-group"><label>VIB R</label><input type="number" id="pinVr"></div>
                         </div>
                     </div>
                 </div>
-                <button id="savePins" class="action-btn warning">Update Hard Pins</button>
+                <button id="savePins" class="action-btn warning">UPGRADE HARDWARE PINS</button>
             </div>
 
             <!-- TESTING -->
             <div id="testing" class="tab-content">
                 <div class="panel">
-                    <div class="panel-header" style="background: var(--ui-orange);">Audio Synthesis Tester</div>
+                    <div class="panel-header">DIGITAL SPEECH ENGINE</div>
                     <div class="panel-body">
                         <div class="grid-buttons">
                             <button class="test-btn" onclick="testAudio('happy')">HAPPY</button>
@@ -185,7 +185,7 @@
                     </div>
                 </div>
                 <div class="panel">
-                    <div class="panel-header" style="background: var(--ui-blue);">Haptic Actuators</div>
+                    <div class="panel-header">ACTUATOR DIAGNOSTICS</div>
                     <div class="panel-body">
                         <div class="grid-buttons">
                             <button class="test-btn" onclick="testHaptic('click')">CLICK</button>
@@ -198,16 +198,16 @@
 
         </main>
 
-        <!-- System Logs -->
+        <!-- Command Console -->
         <div id="logPanel">
-            Console Initialized... Ready for Command Input.
+            SYSTEM_BOOT_LOG: OK... READY FOR INPUT...
         </div>
 
-        <!-- System Info Footer -->
-        <footer class="status-bar">
-            <div class="status-inset">Firmware: <span id="fwDisplay">vUNK</span></div>
-            <div class="status-inset">Power: <span id="vbatPct">--</span>%</div>
-            <div class="status-inset">Socket: ACTIVE</div>
+        <!-- Global Status Bar -->
+        <footer class="status-footer">
+            <div>FW: <span id="fwDisplay">v4.1.0</span></div>
+            <div>BATT: <span id="vbatPct">--</span>%</div>
+            <div style="color:var(--ui-green);">NETWORK ACTIVE</div>
         </footer>
     </div>
     <script src="{{ url_for('static', filename='app.js') }}"></script>

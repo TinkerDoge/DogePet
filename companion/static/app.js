@@ -10,9 +10,10 @@ const statusInd = document.getElementById('statusIndicator');
 const logsDiv = document.getElementById('logPanel');
 
 // Tab Switching
-document.querySelectorAll('.tab-btn').forEach(btn => {
+document.querySelectorAll('.toolbar .tab-btn').forEach(btn => {
+    if (!btn.dataset.tab) return; // Skip buttons without data-tab (like connect button)
     btn.addEventListener('click', () => {
-        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.toolbar .tab-btn').forEach(b => b.classList.remove('active'));
         document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
         btn.classList.add('active');
         document.getElementById(btn.dataset.tab).classList.add('active');
@@ -208,6 +209,11 @@ document.getElementById('saveAppearance').onclick = () => {
 };
 
 document.getElementById('saveAudio').onclick = () => {
+    const hex = document.getElementById('ledColor').value;
+    const r = parseInt(hex.substr(1,2), 16);
+    const g = parseInt(hex.substr(3,2), 16);
+    const b = parseInt(hex.substr(5,2), 16);
+
     const data = {
         cmd: 'set_config',
         audio: {
@@ -216,19 +222,7 @@ document.getElementById('saveAudio').onclick = () => {
         },
         haptic: {
             intensity: parseInt(document.getElementById('hapticIntensity').value)
-        }
-    };
-    sendSerial(data);
-};
-
-document.getElementById('saveLed').onclick = () => {
-    const hex = document.getElementById('ledColor').value;
-    const r = parseInt(hex.substr(1,2), 16);
-    const g = parseInt(hex.substr(3,2), 16);
-    const b = parseInt(hex.substr(5,2), 16);
-    
-    const data = {
-        cmd: 'set_config',
+        },
         led: {
             brightness: parseInt(document.getElementById('ledBright').value),
             r: r, g: g, b: b
@@ -236,6 +230,7 @@ document.getElementById('saveLed').onclick = () => {
     };
     sendSerial(data);
 };
+
 
 document.getElementById('saveMotion').onclick = () => {
     if(!confirm("Reboot required. Continue?")) return;
