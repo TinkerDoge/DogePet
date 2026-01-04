@@ -222,10 +222,13 @@ void Events::update() {
         case TouchEvent::HOLDING:
             if (isChinScratching && !isPetting) {
                 uint32_t holdTime = Touch::getChinHoldDuration();
-                if (holdTime % 3000 < 50) {
+                // Smoother eye blinking cycle: longer duration for better animation with new 60Hz framerate
+                // Open eyes: holds for 100ms every 4 seconds
+                if (holdTime % 4000 < 100) {
                     eyes->open();
                     eyes->setVFlicker(0, 0);
-                } else if (holdTime % 3000 > 200 && holdTime % 3000 < 250) {
+                // Close eyes: happens at middle of cycle (smooth timing)
+                } else if (holdTime % 4000 > 400 && holdTime % 4000 < 500) {
                     eyes->close();
                     eyes->setVFlicker(1, 2);
                 }

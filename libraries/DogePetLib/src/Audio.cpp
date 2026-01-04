@@ -305,8 +305,9 @@ void Audio::yawn() {
 }
 
 void Audio::tapSound() {
-    // Short high blip
-    playTone(1200, 30, WAVE_SQUARE);
+    // Refined chin tap: dual-tone "tink" sound (like a gentle tap on glass)
+    playTone(1500, 40, WAVE_SQUARE);  // Higher note
+    playTone(1100, 40, WAVE_SQUARE);  // Lower harmonic (descending for tactile feel)
 }
 
 void Audio::happySound() {

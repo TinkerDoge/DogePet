@@ -524,12 +524,14 @@ void drawEyes(){
     eyeRheightOffset=0; // reset height offset for right eye
   }
 
-  // Left eye height
-  eyeLheightCurrent = (eyeLheightCurrent + eyeLheightNext + eyeLheightOffset)/2;
+  // Left eye height - improved interpolation for smoother animation at higher framerates
+  // Use smoother easing: faster interpolation step maintains smoothness at 60Hz
+  float easeAmount = 0.25f; // 25% per frame provides smooth acceleration/deceleration
+  eyeLheightCurrent = eyeLheightCurrent + (eyeLheightNext - eyeLheightCurrent) * easeAmount + eyeLheightOffset;
   eyeLy+= ((eyeLheightDefault-eyeLheightCurrent)/2); // vertical centering of eye when closing
   eyeLy-= eyeLheightOffset/2;
   // Right eye height
-  eyeRheightCurrent = (eyeRheightCurrent + eyeRheightNext + eyeRheightOffset)/2;
+  eyeRheightCurrent = eyeRheightCurrent + (eyeRheightNext - eyeRheightCurrent) * easeAmount + eyeRheightOffset;
   eyeRy+= (eyeRheightDefault-eyeRheightCurrent)/2; // vertical centering of eye when closing
   eyeRy-= eyeRheightOffset/2;
 

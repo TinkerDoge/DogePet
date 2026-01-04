@@ -61,7 +61,7 @@ static constexpr int8_t  DEFAULT_EYE_OFFSET_Y      = 0;
 static constexpr bool    DEFAULT_EYE_AUTO_BLINK  = true;
 static constexpr bool    DEFAULT_EYE_IDLE_MODE   = true;
 static constexpr bool    DEFAULT_EYE_CURIOUS_MODE   = true;
-static constexpr uint8_t DEFAULT_CURIOUS_INTERVAL  = 5;
+static constexpr uint8_t DEFAULT_CURIOUS_INTERVAL  = 2;
 static constexpr uint8_t DEFAULT_CURIOUS_VARIATION = 2;
 static constexpr uint8_t DEFAULT_BLINK_INTERVAL  = 3;
 static constexpr uint8_t DEFAULT_BLINK_VARIATION = 1;
@@ -108,7 +108,7 @@ static constexpr uint32_t VBAT_READ_INTERVAL_MS = 1000;  // Read battery voltage
 // =============================================================================
 // TIMING & BEHAVIOR
 // =============================================================================
-static constexpr uint32_t DISPLAY_UPDATE_MS   = 30;   // ~33Hz
+static constexpr uint32_t DISPLAY_UPDATE_MS   = 16;   // ~60Hz (improved from 30ms/~33Hz for smoother animations)
 static constexpr uint16_t DEBOUNCE_MS         = 30;
 static constexpr uint16_t BTN_DEBOUNCE_MS     = 30;
 static constexpr uint16_t BTN_LONG_PRESS_MS   = 1000;

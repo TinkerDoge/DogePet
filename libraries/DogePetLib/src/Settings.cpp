@@ -169,6 +169,14 @@ void Settings::loadFromNVS() {
     pins.vbatPin    = prefs.getUChar("pin_vbat", VBAT_PIN);
     pins.vibroLeft  = prefs.getUChar("pin_vl", VIBRO_LEFT);
     pins.vibroRight = prefs.getUChar("pin_vr", VIBRO_RIGHT);
+
+    // Sanity Check: If critical pins are all 0 (likely NVS corruption or uninitialized), force reload defaults
+    if (pins.i2cSda == 0 && pins.i2cScl == 0 && pins.i2sBclk == 0) {
+        Serial.println("{\"status\":\"warning\",\"msg\":\"Detected invalid pin settings (0). Resetting to defaults.\"}");
+        loadDefaults();
+        // Force save to fix NVS
+        saveToNVS();
+    }
 }
 
 void Settings::saveToNVS() {

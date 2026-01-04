@@ -1,0 +1,259 @@
+/* styles.css - DogePet OS 95 */
+@import url('https://fonts.googleapis.com/css2?family=Public+Sans:wght@700;900&display=swap');
+
+:root {
+    --win-bg: #c0c0c0;
+    --win-white: #ffffff;
+    --win-gray: #808080;
+    --win-dark: #404040;
+    --win-black: #000000;
+    --win-blue: #000080;
+
+    /* Palette from image */
+    --ui-orange: #f8a060;
+    --ui-blue: #58a0f8;
+    --ui-pink: #f880a0;
+    --ui-yellow: #f8f860;
+    
+    --desktop-bg: #808080;
+}
+
+* {
+    box-sizing: border-box;
+    cursor: url('https://cur.cursors-4u.net/games/gam-4/gam384.cur'), auto;
+}
+
+body {
+    background-color: var(--desktop-bg);
+    margin: 0;
+    padding: 20px;
+    font-family: 'Public Sans', 'Segoe UI', sans-serif;
+    color: var(--win-black);
+    height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    overflow: hidden;
+}
+
+/* Base Window Style */
+.window {
+    background: var(--win-bg);
+    border: 2px solid var(--win-black);
+    box-shadow: 4px 4px 0px var(--win-black);
+    display: flex;
+    flex-direction: column;
+    width: 960px;
+    height: 800px;
+    max-height: 95vh;
+}
+
+.window-header {
+    background: var(--win-blue);
+    color: white;
+    padding: 4px 8px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 2px solid var(--win-black);
+}
+
+.window-title {
+    font-weight: bold;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.window-controls {
+    display: flex;
+    gap: 2px;
+}
+
+.win-btn {
+    width: 20px;
+    height: 20px;
+    background: var(--win-bg);
+    border: 1px solid var(--win-black);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    color: black;
+    box-shadow: 1px 1px 0px var(--win-white) inset;
+}
+
+/* Toolbar/Tabs */
+.toolbar {
+    padding: 8px;
+    display: flex;
+    gap: 4px;
+    border-bottom: 2px solid var(--win-black);
+    background: var(--win-bg);
+}
+
+.tab-btn {
+    padding: 6px 12px;
+    background: var(--win-bg);
+    border: 2px solid var(--win-black);
+    font-weight: bold;
+    cursor: pointer;
+    box-shadow: 2px 2px 0px var(--win-white) inset;
+}
+
+.tab-btn.active {
+    background: var(--ui-orange);
+    color: black;
+    transform: translate(1px, 1px);
+    box-shadow: 2px 2px 0px var(--win-dark) inset;
+}
+
+/* Status Bar */
+.status-bar {
+    padding: 4px 10px;
+    border-top: 2px solid var(--win-black);
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+}
+
+.status-inset {
+    border: 1px solid var(--win-gray);
+    padding: 2px 8px;
+    box-shadow: 1px 1px 0px var(--win-white);
+}
+
+/* Main Content */
+.main-content {
+    padding: 15px;
+    flex: 1;
+    overflow-y: auto;
+    background: #e0e0e0;
+    border: 2px solid var(--win-black);
+    margin: 8px;
+}
+
+/* Panels (The "Windows" inside the window) */
+.panel {
+    border: 2px solid var(--win-black);
+    background: var(--win-bg);
+    margin-bottom: 15px;
+    padding: 0;
+}
+
+.panel-header {
+    background: var(--ui-blue);
+    padding: 4px 8px;
+    font-weight: bold;
+    border-bottom: 2px solid var(--win-black);
+}
+
+.panel-body {
+    padding: 15px;
+}
+
+/* Form Elements */
+.form-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 15px;
+}
+
+.form-group {
+    margin-bottom: 10px;
+}
+
+label {
+    display: block;
+    margin-bottom: 4px;
+}
+
+input[type="number"], input[type="text"], select {
+    width: 100%;
+    padding: 6px;
+    background: white;
+    border: 2px solid var(--win-black);
+    font-family: inherit;
+    font-weight: bold;
+}
+
+input[type="range"] {
+    width: 100%;
+    height: 10px;
+    background: var(--win-gray);
+    outline: none;
+    accent-color: var(--ui-blue);
+}
+
+button.action-btn {
+    padding: 8px 20px;
+    background: var(--ui-yellow);
+    border: 2px solid var(--win-black);
+    font-weight: bold;
+    box-shadow: 3px 3px 0px var(--win-black);
+    cursor: pointer;
+}
+
+button.action-btn:active {
+    box-shadow: 0px 0px 0px;
+    transform: translate(2px, 2px);
+}
+
+button.warning {
+    background: var(--ui-orange);
+}
+
+/* Testing Grid */
+.grid-buttons {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 10px;
+}
+
+.test-btn {
+    padding: 10px;
+    background: var(--win-bg);
+    border: 2px solid var(--win-black);
+    font-weight: bold;
+}
+
+.test-btn:hover {
+    background: var(--win-white);
+}
+
+/* Connection Panel */
+.conn-panel {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    background: var(--win-bg);
+    padding: 4px 8px;
+    border: 2px solid var(--win-black);
+}
+
+/* Log Box */
+#logPanel {
+    background: white;
+    border: 2px solid var(--win-black);
+    height: 120px;
+    overflow-y: auto;
+    padding: 8px;
+    font-family: monospace;
+    font-size: 13px;
+    margin-top: 10px;
+}
+
+/* Interactive States */
+.disabled {
+    filter: grayscale(1);
+    opacity: 0.7;
+    pointer-events: none;
+}
+
+.hidden { display: none; }
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
+/* Status Text */
+.status-online { color: green; font-weight: bold; }
+.status-offline { color: red; font-weight: bold; }
