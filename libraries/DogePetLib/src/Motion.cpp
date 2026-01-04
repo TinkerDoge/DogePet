@@ -26,6 +26,11 @@ Motion Motion::_instance;
 static uint32_t lastMotionLogMs = 0;
 static bool motionEventDebugEnabled = true;
 
+// Motion state tracking for reduced logging (only log on state change)
+static bool lastMovingState = false;
+static bool lastShakingState = false;
+static bool lastFuriousState = false;
+
 // ---- Static API ----
 void Motion::init() {
     _instance.begin();
@@ -47,6 +52,31 @@ float Motion::getGyroMag() {
     return _instance._lpfG;
 }
 
+// Static accessors for sensor data
+float Motion::getLastAccelX() {
+    return _instance._lpfAx;
+}
+
+float Motion::getLastAccelY() {
+    return _instance._lpfAy;
+}
+
+float Motion::getLastAccelZ() {
+    return _instance._lpfAz;
+}
+
+float Motion::getLastGyroX() {
+    return _instance._lpfGx;
+}
+
+float Motion::getLastGyroY() {
+    return _instance._lpfGy;
+}
+
+float Motion::getLastGyroZ() {
+    return _instance._lpfGz;
+}
+
 void Motion::logMotionStatus() {
     _instance.logStatus();
 }
@@ -66,6 +96,7 @@ Motion::Motion(int sdaPin, int sclPin, uint8_t mpuAddr)
     : _sdaPin(sdaPin), _sclPin(sclPin), _addr(mpuAddr),
       _initialized(false),
       _lpfAx(0), _lpfAy(0), _lpfAz(1.0f), _lpfG(0),
+      _lpfGx(0), _lpfGy(0), _lpfGz(0),
       _tiltDeg(DEFAULT_TILT_THRESHOLD_DEG), 
       _shakeAngryDps(DEFAULT_SHAKE_ANGRY_DPS),
       _shakeFuriousDps(DEFAULT_SHAKE_FURIOUS_DPS),
@@ -168,15 +199,26 @@ void Motion::calibrateInstance() {
 
 void Motion::logStatus() {
     uint32_t now = millis();
-    // Log motion status at 5-second intervals (like Power logs every 30s, this is more frequent for motion)
-    if (now - lastMotionLogMs >= 5000) {
+    
+    // Only log if motion state has changed (not every 5 seconds)
+    bool currentMoving = _instance._moving;
+    bool currentShaking = _instance._shaking;
+    bool currentFurious = _instance._furiousShaking;
+    
+    // Determine current state label
+    const char* stateLabel = "still";
+    if (currentFurious) stateLabel = "furious_shake";
+    else if (currentShaking) stateLabel = "shake";
+    else if (currentMoving) stateLabel = "moving";
+    
+    // Log only on state change
+    if (currentMoving != lastMovingState || currentShaking != lastShakingState || currentFurious != lastFuriousState) {
         lastMotionLogMs = now;
-        Serial.printf("{\"status\":\"data\",\"type\":\"motion\",\"moving\":%s,\"shaking\":%s,\"gyro\":%.1f,\"accelZ\":%.3f,\"lastEvent\":%lu}\n",
-                      _instance._moving ? "true" : "false",
-                      _instance._shaking ? "true" : "false",
-                      _instance._lpfG,
-                      _instance._lpfAz,
-                      now - _instance._lastEventMs);
+        lastMovingState = currentMoving;
+        lastShakingState = currentShaking;
+        lastFuriousState = currentFurious;
+        
+        Serial.printf("{\"status\":\"data\",\"type\":\"motion\",\"state\":\"%s\"}\n", stateLabel);
     }
 }
 
@@ -199,6 +241,11 @@ Motion::Event Motion::updateInstance() {
     if (fabsf(ay - _lpfAy) > ACCEL_NOISE) _lpfAy = lpf(_lpfAy, ay);
     if (fabsf(az - _lpfAz) > ACCEL_NOISE) _lpfAz = lpf(_lpfAz, az);
     
+    // Filter individual gyro axes (for rotation tracking)
+    _lpfGx = lpf(_lpfGx, gx, 0.3f);
+    _lpfGy = lpf(_lpfGy, gy, 0.3f);
+    _lpfGz = lpf(_lpfGz, gz, 0.3f);
+    
     const float gmag = sqrtf(gx*gx + gy*gy + gz*gz);
     if (fabsf(gmag - _lpfG) > GYRO_NOISE) _lpfG = lpf(_lpfG, gmag, 0.3f);
     
@@ -206,7 +253,7 @@ Motion::Event Motion::updateInstance() {
     static uint32_t lastSnapshot = 0;
     if (gMotionDebug && now - lastSnapshot > 500) {
         lastSnapshot = now;
-        MD_PRINT("LPF: ax=%.3f ay=%.3f az=%.3f g=%.1f\n", _lpfAx, _lpfAy, _lpfAz, _lpfG);
+        MD_PRINT("LPF: ax=%.3f ay=%.3f az=%.3f gx=%.1f gy=%.1f gz=%.1f gmag=%.1f\n", _lpfAx, _lpfAy, _lpfAz, _lpfGx, _lpfGy, _lpfGz, _lpfG);
     }
     
     // 2) Derive features
@@ -292,15 +339,15 @@ Motion::Event Motion::updateInstance() {
     // 5) Tilt detection (accelerometer angles)
     float tiltX = atan2f(_lpfAy, _lpfAz) * 180.0f / M_PI;
     float tiltY = atan2f(_lpfAx, _lpfAz) * 180.0f / M_PI;
+    float tiltZ = atan2f(_lpfAy, _lpfAx) * 180.0f / M_PI;  // Z rotation angle
     
     if (fabsf(tiltX) > _tiltDeg || fabsf(tiltY) > _tiltDeg) {
         // Only report tilt if not already shaking
         if (!_shaking && !_furiousShaking) {
             _lastEventMs = now;
             MD_EVENT("TILT");
-            if (motionEventDebugEnabled) {
-                Serial.printf("{\"status\":\"event\",\"type\":\"tilt\",\"tiltX\":%.1f,\"tiltY\":%.1f}\n", tiltX, tiltY);
-            }
+            // Don't log tilt events directly - tilt changes too frequently
+            // Only log motion state changes (still/moving/shake/furious_shake)
             Events::onMotionEvent((void*)(intptr_t)1);  // Event code 1 = Tilt
             Power::onMotion();  // Wake up if sleeping
             if (_handler) _handler(Event::Tilt);

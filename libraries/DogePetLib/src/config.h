@@ -50,7 +50,7 @@ static constexpr uint8_t  DEFAULT_OLED_CONTRAST  = 255;
 // =============================================================================
 // EYE APPEARANCE
 // =============================================================================
-static constexpr uint8_t DEFAULT_EYE_WIDTH         = 28;
+static constexpr uint8_t DEFAULT_EYE_WIDTH         = 40;
 static constexpr uint8_t DEFAULT_EYE_HEIGHT        = 40;
 static constexpr uint8_t DEFAULT_EYE_BORDER_RADIUS = 8;
 static constexpr int8_t  DEFAULT_EYE_SPACING       = 10;
@@ -72,7 +72,7 @@ static constexpr uint8_t DEFAULT_IDLE_VARIATION  = 2;
 // AUDIO SETTINGS
 // =============================================================================
 static constexpr uint32_t AUDIO_SAMPLE_RATE = 22050;
-static constexpr uint8_t  DEFAULT_AUDIO_VOLUME      = 5;  // 0-100
+static constexpr uint8_t  DEFAULT_AUDIO_VOLUME      = 50;  // 0-100
 
 // Microphone
 static constexpr uint32_t MIC_SAMPLE_RATE = 22050;
@@ -127,15 +127,15 @@ static constexpr uint32_t SLEEP_LOOP_DELAY_MS = 100;            // Delay in main
 // MOTION/IMU SETTINGS
 // =============================================================================
 static constexpr uint32_t IMU_TICK_MS        = 40;      // ~25Hz polling
-static constexpr float    DEFAULT_TILT_THRESHOLD_DEG = 40.0f;   // Tilt detection
-static constexpr float    DEFAULT_SHAKE_ANGRY_DPS    = 300.0f;  // Shake detection
-static constexpr float    DEFAULT_SHAKE_FURIOUS_DPS  = 350.0f;  // Hard shake
-static constexpr uint16_t SHAKE_MS           = 120;     // Sustained shake window
-static constexpr uint16_t FURIOUS_MS         = 200;     // Furious shake window
-static constexpr float    STILL_G_THRESH     = 0.06f;   // Still detection
-static constexpr float    AZ_1G_TOL          = 0.12f;   // az within 1g±tol
-static constexpr float    DEFAULT_TAP_SPIKE_DPS      = 140.0f;  // Tap detection threshold
-static constexpr uint32_t TAP_COOLDOWN_MS    = 600;     // Min time between taps
+static constexpr float    DEFAULT_TILT_THRESHOLD_DEG = 20.0f;   // Tilt detection
+static constexpr float    DEFAULT_SHAKE_ANGRY_DPS    = 220.0f;  // Shake detection
+static constexpr float    DEFAULT_SHAKE_FURIOUS_DPS  = 250.0f;  // Hard shake
+static constexpr uint16_t SHAKE_MS           = 100;     // Sustained shake window
+static constexpr uint16_t FURIOUS_MS         = 180;     // Furious shake window
+static constexpr float    STILL_G_THRESH     = 0.08f;   // Still detection
+static constexpr float    AZ_1G_TOL          = 0.15f;   // az within 1g±tol
+static constexpr float    DEFAULT_TAP_SPIKE_DPS      = 120.0f;  // Tap detection threshold
+static constexpr uint32_t TAP_COOLDOWN_MS    = 500;     // Min time between taps
 
 // LPF noise thresholds
 static constexpr float ACCEL_NOISE = 0.02f;

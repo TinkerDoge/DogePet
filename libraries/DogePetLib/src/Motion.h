@@ -38,6 +38,14 @@ public:
     static void calibrate();        // Recalibrate sensor
     static float getGyroMag();      // Get gyro magnitude (dps)
     
+    // Static accessors for sensor data (for event logging)
+    static float getLastAccelX();   // Get last filtered accel X
+    static float getLastAccelY();   // Get last filtered accel Y
+    static float getLastAccelZ();   // Get last filtered accel Z
+    static float getLastGyroX();    // Get last filtered gyro X
+    static float getLastGyroY();    // Get last filtered gyro Y
+    static float getLastGyroZ();    // Get last filtered gyro Z
+    
     // Event logging and debugging
     static void logMotionStatus();  // Log current motion state periodically
     static void setEventDebug(bool enabled);  // Toggle motion event logging
@@ -69,6 +77,9 @@ public:
     float getAccelY() const { return _lpfAy; }
     float getAccelZ() const { return _lpfAz; }
     float getGyroMagnitude() const { return _lpfG; }
+    float getGyroX() const { return _lpfGx; }
+    float getGyroY() const { return _lpfGy; }
+    float getGyroZ() const { return _lpfGz; }
     
     // Check if device is currently moving
     bool isMoving() const { return _moving; }
@@ -106,6 +117,7 @@ private:
 
     // Filtered sensor values
     float _lpfAx, _lpfAy, _lpfAz, _lpfG;
+    float _lpfGx, _lpfGy, _lpfGz;  // Individual gyro axes for rotation tracking
 
     // Thresholds
     float _tiltDeg;

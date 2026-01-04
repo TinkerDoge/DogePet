@@ -161,9 +161,15 @@ void runBootSequence() {
     case BOOT_ANIMATION:
       Face::updateProgressBar(90, "Wake Up...");
       Animation::playStartupSequence();
-      Face::updateProgressBar(100, "Ready!");
-      delay(400);
+
+      // Clear screen briefly to avoid overlapping
+      Face::clear();
+      delay(100);
       
+      Face::updateProgressBar(100, "Ready!");
+      
+      delay(400);
+      Face::setMode(DisplayMode::Eyes);
       // Enable eye behaviors
       {
         roboEyes* eyes = Face::getEyes();

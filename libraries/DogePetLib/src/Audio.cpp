@@ -110,24 +110,72 @@ void Audio::update() {
     }
 }
 
-void Audio::playTone(uint32_t freq, uint32_t durationMs) {
+void Audio::playTone(uint32_t freq, uint32_t durationMs, WaveType type, uint32_t modFreq, WaveEffect effect) {
     if (!isI2SReady) return;
     
     size_t bytes_written;
     int samples = (I2S_SAMPLE_RATE * durationMs) / 1000;
     int32_t buffer[64]; 
     
-    float increment = (2.0f * M_PI * freq) / I2S_SAMPLE_RATE;
-    float phase = 0;
-    
+    // Oscillator 1 (Main)
+    uint32_t period1 = I2S_SAMPLE_RATE / (freq > 0 ? freq : 1);
+    uint32_t halfPeriod1 = period1 / 2;
+    static uint32_t counter1 = 0;
+
+    // Oscillator 2 (Modulator)
+    uint32_t period2 = (modFreq > 0) ? (I2S_SAMPLE_RATE / modFreq) : 0;
+    uint32_t halfPeriod2 = period2 / 2;
+    static uint32_t counter2 = 0;
+
+    int16_t maxAmp = 20000; // Base amplitude
+
     for (int i = 0; i < samples; i += 32) {
         for (int j = 0; j < 64; j+=2) {
-            int16_t amplitude = (int16_t)((volume / 100.0f) * 32000);
-            int16_t sample = (int16_t)(sin(phase) * amplitude);
-            phase += increment;
-            if (phase > 2.0f * M_PI) phase -= 2.0f * M_PI;
+            int16_t sample1 = 0;
+            int16_t sample2 = 0;
+            int16_t finalSample = 0;
+
+            // --- OSCILLATOR 1 ---
+            if (type == WAVE_SQUARE) {
+                int16_t amp = (int16_t)((volume / 100.0f) * maxAmp);
+                sample1 = ((counter1 % period1) < halfPeriod1) ? amp : -amp;
+            } else if (type == WAVE_NOISE) {
+                int16_t amp = (int16_t)((volume / 100.0f) * (maxAmp * 0.75));
+                sample1 = (rand() % (2 * amp)) - amp;
+            }
+
+            // --- OSCILLATOR 2 (Only if needed) ---
+            if (modFreq > 0 && period2 > 0) {
+                int16_t amp = (int16_t)((volume / 100.0f) * maxAmp);
+                // Osc 2 is always Square for now (simple modulator)
+                sample2 = ((counter2 % period2) < halfPeriod2) ? amp : -amp;
+            }
+
+            // --- MIXING / EFFECTS ---
+            if (modFreq > 0 && effect == EFFECT_MIX) {
+                // Additive: Average the two signals
+                finalSample = (sample1 + sample2) / 2;
+            } else if (modFreq > 0 && effect == EFFECT_RING) {
+                // Ring Mod: Multiply (Simulates XOR logic behavior of retro hardware ring mods roughly)
+                // Mathematical Ring Mod: s1 * s2 -> output amplitude needs scaling
+                // Logic XOR (1-bit style): if signs differ, output high? 
+                // Let's stick to multiplication logic but keep ranges safely within 16-bit
+                
+                // Scale down before multiply to avoid 32-bit overflow when casting back to 16
+                // sample1 is +/- 20000. s1*s2 is +/- 400,000,000. Fits in int32.
+                int32_t product = (int32_t)sample1 * sample2; 
+                // Normalize back to amplitude range. maxAmp * maxAmp = 400M. We want output maxAmp aka 20000.
+                // Divide by maxAmp.
+                finalSample = (int16_t)(product / maxAmp); 
+            } else {
+                // No effect or no modulator
+                finalSample = sample1;
+            }
+
+            counter1++;
+            if (modFreq > 0) counter2++;
             
-            int32_t s32 = sample << 16; 
+            int32_t s32 = finalSample << 16; 
             buffer[j] = s32;
             buffer[j+1] = s32;
         }
@@ -135,62 +183,151 @@ void Audio::playTone(uint32_t freq, uint32_t durationMs) {
     }
 }
 
+void Audio::playSizzle() {
+    playTone(0, 150, WAVE_NOISE);
+}
+
+void Audio::speak(Mood mood) {
+    int count = 0;
+    
+    switch(mood) {
+        case MOOD_HAPPY:
+            // Fast, rising, HARMONIOUS (Major chords)
+            count = 4 + (rand() % 4); 
+            for(int i=0; i<count; i++) {
+                int f = 800 + (rand() % 800) + (i*150);
+                int d = 40 + (rand() % 40);
+                
+                // Add 5th (x1.5) or Octave (x2) harmony
+                int modRatio = (rand() % 2 == 0) ? 2 : 3; // 2=octave(2/1), 3=fifth(3/2 approx) - wait integer math
+                // Simple ratios: 1.5 is difficult with int. Let's do: f*3/2
+                int f2 = (modRatio == 2) ? f*2 : (f*3)/2; 
+                
+                playTone(f, d, WAVE_SQUARE, f2, EFFECT_MIX);
+                delay(10 + (rand() % 20));
+            }
+            break;
+            
+        case MOOD_SAD:
+            // Slow, descending, simple tones (no aggressive mod)
+            count = 2 + (rand() % 2); 
+            for(int i=0; i<count; i++) {
+                int f = 600 - (i * 150) - (rand() % 100);
+                if (f < 100) f = 100;
+                int d = 150 + (rand() % 100); 
+                playTone(f, d, WAVE_SQUARE); // Pure tone for sadness
+                delay(50);
+            }
+            break;
+            
+        case MOOD_CURIOUS:
+            // "Whistle" slide up
+            count = 2 + (rand() % 3);
+            for(int i=0; i<count; i++) {
+                int startF = 800 + (rand() % 400);
+                int endF = startF + 400 + (rand() % 400);
+                int steps = 10;
+                int stepDur = 5;
+                for(int s=0; s<steps; s++) {
+                    int currF = startF + ((endF - startF) * s / steps);
+                    // Add slight detuned phasing for sci-fi whistle texture
+                    playTone(currF, stepDur, WAVE_SQUARE, currF + 5, EFFECT_MIX);
+                }
+                delay(20);
+            }
+            break;
+            
+        case MOOD_ANGRY:
+            // Fast, RING MODULATED (Metallic/Harsh)
+            count = 5 + (rand() % 5);
+            for(int i=0; i<count; i++) {
+                if (rand() % 3 == 0) {
+                    playTone(0, 40, WAVE_NOISE); 
+                } else {
+                    int f = 1000 + (rand() % 1000);
+                    // Ring mod with discordant frequency (e.g. f * 1.33)
+                    int f2 = f + 333; 
+                    playTone(f, 30, WAVE_SQUARE, f2, EFFECT_RING);
+                }
+                delay(5);
+            }
+            break;
+            
+        case MOOD_NEUTRAL:
+        default:
+            count = 3 + (rand() % 3);
+            for(int i=0; i<count; i++) {
+                int f = 500 + (rand() % 1000);
+                int d = 40 + (rand() % 60);
+                // Slight Mix for body
+                playTone(f, d, WAVE_SQUARE, f/2, EFFECT_MIX);
+                delay(30);
+            }
+            break;
+    }
+}
+
 void Audio::playMelody() {
-    playTone(523, 100); delay(50);
-    playTone(659, 100); delay(50);
-    playTone(784, 100); delay(50);
-    playTone(1047, 300);
+    // Startup "Power On" Arpeggio
+    playTone(880, 80, WAVE_SQUARE);  // A5
+    playTone(1108, 80, WAVE_SQUARE); // C#6
+    playTone(1318, 80, WAVE_SQUARE); // E6
+    playTone(1760, 120, WAVE_SQUARE); // A6
 }
 
 void Audio::chirp() {
-    playTone(800, 40); delay(20);
-    playTone(1200, 60);
+    // Quick rising slide
+    for(int f = 800; f < 1600; f+=200) {
+        playTone(f, 20, WAVE_SQUARE); 
+    }
 }
 
 void Audio::purrrSound() {
-    playTone(600, 80); delay(30);
-    playTone(500, 80); delay(30);
-    playTone(400, 100);
+    // Low rumble with noise bursts
+    for(int i=0; i<3; i++) {
+        playTone(60, 60, WAVE_SQUARE);
+        playTone(0, 30, WAVE_NOISE);
+    }
 }
 
 void Audio::surpriseBeep() {
-    playTone(400, 50); delay(30);
-    playTone(600, 50); delay(30);
-    playTone(900, 50); delay(30);
-    playTone(1200, 80);
+    // "!" Alert Sound - Rapid high arpeggio
+    playTone(1800, 50, WAVE_SQUARE);
+    playTone(2200, 50, WAVE_SQUARE);
+    playTone(1800, 50, WAVE_SQUARE);
 }
 
 void Audio::yawn() {
-    playTone(800, 100); delay(40);
-    playTone(600, 120); delay(40);
-    playTone(400, 150); delay(40);
-    playTone(300, 200);
+    // Pitch down slide
+    for(int f = 800; f > 200; f-=100) {
+        playTone(f, 60, WAVE_SQUARE);
+    }
 }
 
 void Audio::tapSound() {
-    // Gentle tap sound - short, pleasant beep
-    playTone(600, 30); delay(10);
-    playTone(800, 40);
+    // Short high blip
+    playTone(1200, 30, WAVE_SQUARE);
 }
 
 void Audio::happySound() {
-    // Happy/content sound when petting starts - ascending pleasant tones
-    playTone(500, 50); delay(20);
-    playTone(600, 50); delay(20);
-    playTone(700, 60);
+    // "Coin" / 1-Up style sound
+    playTone(1047, 50, WAVE_SQUARE); // C6
+    playTone(1318, 50, WAVE_SQUARE); // E6
+    playTone(1568, 50, WAVE_SQUARE); // G6
+    playTone(2093, 80, WAVE_SQUARE); // C7
 }
 
 void Audio::contentSound() {
-    // Satisfied sound when petting ends - gentle descending sigh
-    playTone(600, 60); delay(30);
-    playTone(500, 80); delay(30);
-    playTone(400, 100);
+    // Gentle 2-tone descent
+    playTone(1500, 60, WAVE_SQUARE);
+    playTone(1000, 80, WAVE_SQUARE);
 }
 
 void Audio::satisfiedSound() {
-    // Gentle satisfied sound for chin scratch end - soft content purr
-    playTone(450, 50); delay(25);
-    playTone(400, 70);
+    // Short purr burst
+    playTone(60, 40, WAVE_SQUARE);
+    playTone(0, 40, WAVE_NOISE);
+    playTone(60, 40, WAVE_SQUARE);
 }
 
 void Audio::stop() {

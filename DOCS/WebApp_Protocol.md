@@ -255,7 +255,27 @@ Recommend organizing settings into tabs:
 4. **Testing** (Dynamic - for preview/diagnostics)
    - Expression tester buttons: Happy, Angry, Tired, Curious, Love, Sweat
    - Haptic pattern tester: Click, Double-Click, Alarm, Purr
-   - Audio playback buttons: Chirp, Purr, Surprise, Yawn
+   - **Audio Tester** (`test_audio`):
+     - `happy`: Triggers `speak(MOOD_HAPPY)` (Harmonious Babble)
+     - `sad`: Triggers `speak(MOOD_SAD)` (Descending Tones)
+     - `curious`: Triggers `speak(MOOD_CURIOUS)` (Phased Whistles)
+     - `angry`: Triggers `speak(MOOD_ANGRY)` (Ring Mod Squawk)
+     - `chirp`: Legacy Chirp
+     - `purr`: Legacy Purr
+
+### Audio Testing Command (New in v4.1)
+
+**Command:**
+```json
+{"cmd": "test_audio", "action": "happy"}
+```
+
+**Response:**
+```json
+{"status": "ok", "msg": "Playing audio: happy"}
+```
+
+**Actions**: `happy`, `sad`, `curious`, `angry`, `chirp`, `purr`, `sizzle`
 
 5. **Motion Sensitivity** (Persistent ⚠️)
    - Tilt threshold
@@ -294,5 +314,5 @@ ESP: {"status":"info","msg":"Rebooting..."}
 
 ---
 
-**Protocol Version**: 4.0  
+**Protocol Version**: 4.1  
 **Last Updated**: January 2026

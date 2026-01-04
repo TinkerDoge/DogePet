@@ -34,6 +34,18 @@ The library contains all hardware modules with a single entry point:
 
 ---
 
+## Core Modules Summary
+
+**Latest Updates (v2.1):**
+- **6-Axis Motion Sensing**: Full accelerometer (X, Y, Z) + gyroscope (X, Y, Z) filtering now available
+- **Priority-Based Event System**: 4-level priority prevents overlapping behaviors (FURIOUS_SHAKE > COMBO > SHAKE_TAP > TILT)
+- **Two-Tier Wake Logic**: DIM mode wakes with normal touch/motion; SLEEP mode only wakes with combo or furious shake
+- **State-Change-Only Logging**: Motion and touch events log only on state transitions, eliminating serial spam
+- **Animation Timeouts**: Shake auto-resets after 800ms, furious shake confused animation after 500ms
+- **Reduced Power Consumption**: SLEEP mode battery reading every 10s without logging
+
+---
+
 ## Core Modules
 
 ### 1. Face Module (`Face.h` / `Face.cpp`)
@@ -61,102 +73,75 @@ The library contains all hardware modules with a single entry point:
 *   **Settings Integration**: Loads and applies Settings for eye size, spacing, auto-blink, idle animation, contrast, and mood persistence.
 
 ### 2. Motion Module (`Motion.h` / `Motion.cpp`)
-**Responsibility**: High-level motion interpreter with event detection and activity logging.
+**Responsibility**: High-level motion interpreter with 6-axis event detection and state-change logging.
 
-*   **Hardware**: MPU6050/MPU6500 (I2C 0x68).
-*   **Approach**: Simple I2C polling with noise-gated low-pass filtering.
+*   **Hardware**: MPU6050/MPU6500 (I2C 0x68) - 3-axis accelerometer + 3-axis gyroscope.
+*   **Approach**: Simple I2C polling with noise-gated low-pass filtering on all 6 axes.
 *   **Key Static Functions** (for compatibility):
     *   `Motion::init()`: Initialize global instance.
     *   `Motion::update()`: Poll sensor, return event.
     *   `Motion::isReady()`: Check if initialized.
     *   `Motion::calibrate()`: Recalibrate sensor.
-    *   `Motion::logMotionStatus()`: Log current motion state to serial (call in main loop).
-    *   `Motion::setEventDebug(bool)`: Enable/disable motion event JSON logging.
-*   **Motion Events** (all wake the bot if sleeping):
-    *   `None`: No significant motion.
-    *   `Tilt`: Gentle tilt beyond threshold → Logs `{"status":"event","type":"tilt",...}`.
-    *   `Shake`: Brief shake detected → Logs `{"status":"event","type":"shake"}` + wakes.
-    *   `FuriousShake`: Sustained hard shake → Logs `{"status":"event","type":"furious_shake"}` + wakes.
-    *   `Tap`: Single tap detected → Logs `{"status":"event","type":"motion_tap"}` + wakes.
-    *   `Still`: Device returned to stationary → Logs `{"status":"event","type":"motion_still"}`.
+    *   `Motion::getGyroMag()`: Get gyro magnitude (dps).
+    *   **Sensor Data Accessors** (for event logging):
+        *   `Motion::getLastAccelX()`, `getLastAccelY()`, `getLastAccelZ()`: Last filtered acceleration.
+        *   `Motion::getLastGyroX()`, `getLastGyroY()`, `getLastGyroZ()`: Last filtered rotation.
+    *   `Motion::logMotionStatus()`: Log motion state changes (call in main loop).
+    *   `Motion::setEventDebug(bool)`: Toggle motion event JSON logging.
+*   **Motion Events** (trigger behavior reactions):
+    *   `Tilt`: Gentle tilt beyond threshold → curious eyes (detected via accelerometer angles).
+    *   `Shake`: Brief shake detected → happy eyes + blink.
+    *   `FuriousShake`: Sustained hard shake → angry + sweat + confused animation (forces wake).
+    *   `Tap`: Single tap detected → blink + attention.
+    *   `Still`: Device returned to stationary.
+*   **State-Change Logging** (minimal serial output):
+    *   Only logs when motion state changes: `{"status":"data","type":"motion","state":"still"|"moving"|"shake"|"furious_shake"}`
+    *   Prevents spam by logging state transitions, not continuous updates.
+    *   Periodic sensor data available via `logMotionStatus()` (not enabled by default).
 *   **Power Integration**:
-    *   All motion events call `Power::onMotion()` to wake from sleep/dim mode.
-    *   Motion provides activity tracking similar to touch and noise.
-*   **Periodic Logging** (every 5 seconds):
-    *   Logs: `{"status":"data","type":"motion","moving":bool,"shaking":bool,"gyro":float,"accelZ":float,"lastEvent":ms}`.
-    *   Allows monitoring of motion state without needing debug flags.
+    *   Motion Tap/Tilt/Shake call `Power::onMotion()` → wakes from DIM mode only.
+    *   Motion FuriousShake calls `Power::forceWake()` → wakes from any state including SLEEP.
 *   **Configuration** (from `config.h`):
     *   `TILT_THRESHOLD_DEG`: Tilt detection (default 20°).
     *   `SHAKE_ANGRY_DPS`: Shake threshold (default 200 dps).
     *   `SHAKE_FURIOUS_DPS`: Furious shake (default 280 dps).
-    *   `IMU_TICK_MS`: Sensor polling interval (default 20ms).
+    *   `TAP_SPIKE_DPS`: Tap detection threshold (default 140 dps).
+    *   `IMU_TICK_MS`: Sensor polling interval (default 40ms).
 
 ### 3. Audio Module (`Audio.h` / `Audio.cpp`)
-**Responsibility**: Manages the I2S subsystem for both Input (Microphone) and Output (Amplifier).
+**Responsibility**: Manages the I2S subsystem for both Input (Microphone) and Output (Amplifier) with a **Polyphonic Retro Engine**.
 
 *   **Hardware**: 
     *   **Input**: INMP441 MEMS Microphone (I2S Standard).
     *   **Output**: MAX98357A Class-D Amp (I2S Standard).
 *   **Driver**: ESP32 I2S Driver (via `driver/i2s.h`).
+*   **Synthesis Engine**:
+    *   **Waveforms**: Square Wave (Retro/Arcade), White Noise (Percussive/FX).
+    *   **Polyphony**: Dual-Oscillator architecture (Osc1 + Osc2).
+    *   **Effects**:
+        *   **Mix**: Additive synthesis for harmonies (e.g., chords).
+        *   **Ring Mod**: Multiplicative synthesis for metallic/robotic textures.
+*   **Procedural Speech**:
+    *   `speak(Mood)`: Generates unique, non-repeating "droid babble" sequences based on emotion.
+    *   **Happy**: Fast, rising, harmonious chords (Major intervals).
+    *   **Curious**: Sliding pitch "whistles" with phasing effects.
+    *   **Angry**: Fast, discordant, ring-modulated noise and square waves.
+    *   **Sad**: Slow, descending, pure low tones.
 *   **Key Functions**:
     *   `init()`: Installs the I2S driver in full-duplex mode.
-    *   `readMicDB()`: Reads audio samples and calculates approximate dB level.
-    *   `playTone(freq, duration)`: Synthesizes a sine wave and pushes it to the I2S buffer.
-    *   `playMelody()`: Plays the startup jingle (C5-E5-G5-C6).
-    *   `update()`: Monitors mic level and logs only when dB changes.
-    *   `setMicLogEnabled(bool)`: Enable/disable mic logging.
-*   **Sound Effects**:
-    *   `chirp()`: Playful two-tone chirp (800Hz → 1200Hz).
-    *   `purrrSound()`: Content purring sound (descending: 600Hz → 500Hz → 400Hz).
-    *   `surpriseBeep()`: Surprised ascending beep (400Hz → 600Hz → 900Hz → 1200Hz).
-    *   `yawn()`: Tired yawn sound (descending: 800Hz → 600Hz → 400Hz → 300Hz).
+    *   `playTone(freq, dur, type, modFreq, effect)`: Core synthesizer function.
+    *   `speak(Mood)`: Main high-level voice function.
+    *   `chirp()`, `surpriseBeep()`: Legacy SFX helpers (remapped to new engine).
+*   **Sound Design**:
+    *   All sounds are procedurally generated in real-time (no samples).
+    *   Aesthetics: 8-bit, "Chiptune", "Droid-like".
 *   **Touch Interaction Sounds**:
-    *   `tapSound()`: Gentle tap feedback - short pleasant beep (600Hz → 800Hz).
-    *   `happySound()`: Happy/content sound for petting start - ascending pleasant tones (500Hz → 600Hz → 700Hz).
-    *   `contentSound()`: Satisfied sound for petting end - gentle descending sigh (600Hz → 500Hz → 400Hz).
-    *   `satisfiedSound()`: Gentle satisfied sound for chin scratch end - soft content purr (450Hz → 400Hz).
+    *   `tapSound()`: Gentle 8-bit blip.
+    *   `happySound()`: "1-Up" style major arpeggio.
+    *   `contentSound()`: Two-tone descent.
+    *   `satisfiedSound()`: Short purr burst (Square + Noise).
 
-### 4. Animation Module (`Animation.h` / `Animation.cpp`)
-**Responsibility**: Orchestrates high-level behaviors and command sequences.
-
-*   **Dependencies**: `Face`, `Audio`, `Motion`.
-*   **Key Functions**:
-    *   `init()`: Prepares behavior state logic.
-    *   `playStartupSequence()`: Runs the "Wake Up" sequence (Blink -> Laugh -> Happy).
-    *   `tick()`: Main behavior tree update (called in loop).
-
-### 5. Power Module (`Power.h` / `Power.cpp`)
-**Responsibility**: Battery monitoring and power state management (sleep/wake).
-
-*   **Hardware**: Battery voltage via ADC (GPIO 15) with voltage divider.
-*   **Battery Monitoring**:
-    *   `getVoltage()`: Returns cached battery voltage (updated every 1 second).
-    *   `getPercent()`: Returns cached battery percentage (0-100, calculated from voltage).
-    *   `logStatus()`: Manually log battery status to serial (JSON format).
-    *   Automatic periodic logging every 30 seconds via `update()`.
-*   **Key Functions**:
-    *   `init()`: Configures ADC (12-bit, 11dB attenuation) and initializes state. Reads battery once at startup.
-    *   `update()`: Updates battery readings, logs status periodically, and manages power state transitions (call in loop).
-    *   `onActivity()` / `onMotion()` / `onLoudNoise()`: Activity tracking - only wakes from DIM mode (not SLEEP).
-    *   `forceWake()`: Force wake from any state (ACTIVE, DIM, or SLEEP) - used for combo touch and furious shake.
-    *   `isSleeping()`: Returns true if in sleep mode.
-    *   `wake()` / `sleep()`: Force state changes.
-*   **Power States**:
-    *   `ACTIVE`: Normal operation.
-    *   `DIM`: Screen dimmed after idle timeout (1 min).
-    *   `SLEEPING`: Low power mode after sleep timeout (2 min).
-*   **Battery Reading**:
-    *   Uses averaging (`VBAT_SAMPLES` samples) for stable readings.
-    *   Cached readings updated at `VBAT_READ_INTERVAL_MS` (1 second default).
-    *   Voltage calculation: `V = (ADC_raw / 4095) * 3.3V * 2.0 * VBAT_CAL`
-    *   Percentage: Linear interpolation between `VBAT_MIN_V` and `VBAT_MAX_V`.
-*   **Logging**:
-    *   Automatic JSON logging every `VBAT_LOG_INTERVAL_MS` (30 seconds) during ACTIVE and DIM modes.
-    *   In SLEEP mode: battery is read but not logged (reduced serial output).
-    *   Format: `{"status":"data","type":"power","voltage":3.85,"percent":72,"state":0}`
-*   **Callbacks**: `onSleepCallback`, `onWakeCallback`, `onDimCallback`.
-
-### 6. Haptics Module (`Haptics.h` / `Haptics.cpp`)
+### 4. Haptics Module (`Haptics.h` / `Haptics.cpp`)
 **Responsibility**: Controls vibration motors for haptic feedback with non-blocking patterns.
 
 *   **Hardware**: 2x ERM vibration motors (GPIO 3, 4) via PWM (LEDC).
@@ -179,7 +164,26 @@ The library contains all hardware modules with a single entry point:
     - Loops continuously while purring for natural cat-like feel.
 *   **Performance**: Main loop overhead ~1ms per iteration (vs. 60-480ms blocking before).
 
-### 7. Touch Module (`Touch.h` / `Touch.cpp`)
+### 5. Power Module (`Power.h` / `Power.cpp`)
+**Responsibility**: Battery monitoring and sleep state management with two-tier wake logic.
+
+*   **Hardware**: ADC on GPIO 15 with voltage divider (0.0–4.2V → 0–3.3V scaled).
+*   **State Machine**:
+    *   `ACTIVE`: Full operation. Battery monitored every 1s, logged every 30s.
+    *   `DIM`: Tired eyes with slower blinks. Idle after 1 minute. Battery monitored every 1s, logged every 30s.
+    *   `SLEEPING`: Closed eyes with animated Zzz. Idle after 2 minutes. Battery monitored every 10s (no logging to save power).
+*   **Wake Logic** (Two-Tier System):
+    *   **Tier 1 (DIM Wake)**: `onActivity()`, `onMotion()`, `onLoudNoise()` → Wakes from DIM mode only (ignored if already ACTIVE).
+        *   Used by regular touch, motion, and audio for normal interactions.
+    *   **Tier 2 (Any-State Wake)**: `forceWake()` → Unconditionally wakes from SLEEP (also from DIM/ACTIVE).
+        *   Used only by combo touch and motion furious shake (powerful triggers).
+*   **Battery Management**:
+    *   Low battery (< 3.6V) displays warning; shutdown threshold at 3.0V.
+    *   Voltage averaging for stable readings (11 samples).
+    *   Automatic periodic logging every 30 seconds in ACTIVE/DIM modes.
+*   **Callbacks**: `onSleepCallback`, `onWakeCallback`, `onDimCallback` allow modules to react to state changes.
+
+### 6. Touch Module (`Touch.h` / `Touch.cpp`)
 **Responsibility**: Handles touch/button input with debounce and gesture detection.
 
 *   **Hardware**: FUNC_BTN (GPIO 41) - Active HIGH.
@@ -197,22 +201,51 @@ The library contains all hardware modules with a single entry point:
     *   `HOLD_END`: Just released from hold.
 *   **Optional**: Chin touch sensor (compile-time `TOUCH_CHIN_ENABLED`).
 
-### 8. Events Module (`Events.h` / `Events.cpp`)
-**Responsibility**: Central event handler that coordinates touch interactions with haptic and audio feedback.
+### 7. Animation Module (`Animation.h` / `Animation.cpp`)
+**Responsibility**: Orchestrates high-level behaviors and command sequences.
 
-*   **Dependencies**: `Face`, `Touch`, `Haptics`, `Audio`, `Power`.
+*   **Dependencies**: `Face`, `Audio`, `Motion`.
 *   **Key Functions**:
-    *   `init()`: Initializes event state.
-    *   `update()`: Processes touch events and triggers appropriate responses (call in loop after `Touch::update()`).
-*   **Event Handling**: All touch interactions trigger both haptic and sound feedback for a more alive, responsive feel.
-*   **Behaviors**:
-    *   Head tap → blink + click haptic + tap sound
-    *   Head hold start → happy eyes + purr haptic + happy sound
+    *   `init()`: Prepares behavior state logic.
+    *   `playStartupSequence()`: Runs the "Wake Up" sequence (Blink -> Laugh -> Happy).
+    *   `tick()`: Main behavior tree update (called in loop).
+
+### 8. Events Module (`Events.h` / `Events.cpp`)
+**Responsibility**: Central event handler coordinating touch/motion interactions with priority-based behavior management.
+
+*   **Dependencies**: `Face`, `Touch`, `Motion`, `Haptics`, `Audio`, `Power`.
+*   **Key Functions**:
+    *   `init()`: Initializes event state and priorities.
+    *   `update()`: Processes touch events and triggers responses (call in loop after `Touch::update()`).
+    *   `onMotionEvent(void*)`: Handle motion events from Motion module.
+*   **Event Handling Features**:
+    *   All touch interactions trigger haptic and sound feedback.
+    *   Touch reactions skip if sleeping (except combo for wake).
+    *   **Priority-Based System** (prevents overlapping behaviors):
+        *   **PRIORITY_FURIOUS_SHAKE (3)**: Always triggers, overrides everything.
+        *   **PRIORITY_COMBO (2)**: Combo touch forces wake from SLEEP.
+        *   **PRIORITY_SHAKE_TAP (1)**: Regular shake/tap interactions.
+        *   **PRIORITY_TILT (0)**: Subtle tilt (debounced every 2s to prevent spam).
+    *   **State-Change Logging** for touch:
+        *   Head/chin pressed/released: `{"status":"data","type":"touch","sensor":"head|chin","state":"pressed|released"}`
+        *   Actual events logged only: `{"status":"event","type":"tap|petting_start|..."}`
+    *   **Animation Timeouts**:
+        *   Shake animation auto-resets after 800ms.
+        *   Furious shake confused animation auto-resets after 500ms.
+*   **Touch Behaviors**:
+    *   Head tap → blink + click + tap sound
+    *   Head hold start → happy eyes + purr + happy sound
     *   Head hold end → normal eyes + stop purr + content sound
-    *   Chin tap → wink + click haptic + chirp sound
-    *   Chin hold start → closed eyes + purr haptic + purr sound
+    *   Chin tap → wink + click + chirp
+    *   Chin hold start → closed eyes + purr + purr sound
     *   Chin hold end → open eyes + stop purr + satisfied sound
-    *   Combo (head + chin) → confused + double-click haptic + surprise beep
+    *   Combo (head + chin) → confused + double-click + surprise beep + **forceWake()**
+*   **Motion Behaviors**:
+    *   Motion Tilt → curious eyes + click + tap sound (DIM wake only).
+    *   Motion Shake → happy eyes + blink + double-click + surprise beep (DIM wake only).
+    *   Motion Furious Shake → angry + sweat + confused animation + alarm + yawn + **forceWake()** (SLEEP wake).
+    *   Motion Tap → blink + click + chirp (DIM wake only).
+    *   Motion Still → reset all animations.
 
 ### 9. LED Module (`LED.h` / `LED.cpp`)
 **Responsibility**: Controls the WS2812 status LED.
