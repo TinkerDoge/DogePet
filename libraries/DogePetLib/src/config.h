@@ -127,9 +127,9 @@ static constexpr uint32_t SLEEP_LOOP_DELAY_MS = 100;            // Delay in main
 // MOTION/IMU SETTINGS
 // =============================================================================
 static constexpr uint32_t IMU_TICK_MS        = 40;      // ~25Hz polling
-static constexpr float    DEFAULT_TILT_THRESHOLD_DEG = 20.0f;   // Tilt detection
-static constexpr float    DEFAULT_SHAKE_ANGRY_DPS    = 200.0f;  // Shake detection
-static constexpr float    DEFAULT_SHAKE_FURIOUS_DPS  = 280.0f;  // Hard shake
+static constexpr float    DEFAULT_TILT_THRESHOLD_DEG = 40.0f;   // Tilt detection
+static constexpr float    DEFAULT_SHAKE_ANGRY_DPS    = 300.0f;  // Shake detection
+static constexpr float    DEFAULT_SHAKE_FURIOUS_DPS  = 350.0f;  // Hard shake
 static constexpr uint16_t SHAKE_MS           = 120;     // Sustained shake window
 static constexpr uint16_t FURIOUS_MS         = 200;     // Furious shake window
 static constexpr float    STILL_G_THRESH     = 0.06f;   // Still detection

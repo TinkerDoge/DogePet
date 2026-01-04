@@ -10,19 +10,27 @@
 static bool isPetting = false;
 static bool isChinScratching = false;
 static bool comboConfusedTriggered = false;
+static bool furiousShakeTriggered = false;
 static uint32_t confusedStartMs = 0;
 static constexpr uint32_t CONFUSED_MAX_MS = 2000;
+static constexpr uint32_t FURIOUS_SHAKE_RESET_MS = 500;  // Reset confused animation after 500ms
 
 void Events::init() {
     isPetting = false;
     isChinScratching = false;
     comboConfusedTriggered = false;
+    furiousShakeTriggered = false;
     confusedStartMs = 0;
 }
 
 void Events::update() {
     roboEyes* eyes = Face::getEyes();
     if (!eyes) return;
+
+    // Skip all touch reactions if sleeping (except combo/furious shake for wake)
+    if (Power::isSleeping()) {
+        return;
+    }
 
     // Safeguard: Clear stuck animations
     if (eyes->confused && confusedStartMs > 0) {
@@ -85,9 +93,15 @@ void Events::update() {
             eyes->setHFlicker(true, 3);
             Haptics::doubleClick();
             Audio::surpriseBeep();
-            Power::forceWake();  // Force wake from any state
+            // Check if sleeping - if so, force wake; if awake, just mark activity
+            if (Power::isSleeping()) {
+                Power::forceWake();  // Force wake from sleep
+            } else {
+                Power::onActivity();  // Just register activity if already awake
+            }
             Serial.println("{\"status\":\"event\",\"type\":\"combo_confused\"}");
             comboConfusedTriggered = true;
+            confusedStartMs = millis();  // Track when confused animation started
         }
     } else {
         if (comboConfusedTriggered) {
@@ -160,12 +174,29 @@ void Events::onMotionEvent(void* eventPtr) {
     
     roboEyes* eyes = Face::getEyes();
     if (!eyes) return;
+
+    // Reset furious shake animation after timeout
+    if (furiousShakeTriggered && confusedStartMs > 0) {
+        if (millis() - confusedStartMs > FURIOUS_SHAKE_RESET_MS) {
+            eyes->angry = false;
+            eyes->sweat = false;
+            eyes->confused = false;
+            furiousShakeTriggered = false;
+            confusedStartMs = 0;
+        }
+    }
+
+    // Skip motion reactions if sleeping (except furious shake for wake)
+    if (Power::isSleeping() && event != 3) {  // 3 = FuriousShake
+        return;
+    }
     
     switch (event) {
         case 1:  // Tilt - curious/interested reaction
             eyes->curious = true;
             Haptics::click();
             Audio::tapSound();
+            Power::onMotion();
             Serial.println("{\"status\":\"event\",\"type\":\"motion_tilt\",\"reaction\":\"curious\"}");
             break;
             
@@ -174,23 +205,34 @@ void Events::onMotionEvent(void* eventPtr) {
             eyes->blink();
             Haptics::doubleClick();
             Audio::surpriseBeep();
+            Power::onMotion();
             Serial.println("{\"status\":\"event\",\"type\":\"motion_shake\",\"reaction\":\"playful\"}");
             break;
             
         case 3:  // FuriousShake - startled/jiggling reaction with confused animation
-            eyes->angry = true;
-            eyes->sweat = true;
-            eyes->confused = true;  // Add jiggling confused animation
-            Haptics::alarm();
-            Audio::yawn();  // Surprised yawn-like sound
-            Power::forceWake();  // Force wake from any state
-            Serial.println("{\"status\":\"event\",\"type\":\"motion_furious_shake\",\"reaction\":\"startled\"}");
+            if (!furiousShakeTriggered) {
+                eyes->angry = true;
+                eyes->sweat = true;
+                eyes->confused = true;  // Add jiggling confused animation
+                Haptics::alarm();
+                Audio::yawn();  // Surprised yawn-like sound
+                // Check if sleeping - if so, force wake; if awake, just mark activity
+                if (Power::isSleeping()) {
+                    Power::forceWake();  // Force wake from sleep
+                } else {
+                    Power::onMotion();  // Just register motion if already awake
+                }
+                Serial.println("{\"status\":\"event\",\"type\":\"motion_furious_shake\",\"reaction\":\"startled\"}");
+                furiousShakeTriggered = true;
+                confusedStartMs = millis();  // Track when animation started
+            }
             break;
             
         case 4:  // Motion Tap - quick attention
             eyes->blink();
             Haptics::click();
             Audio::chirp();
+            Power::onMotion();
             Serial.println("{\"status\":\"event\",\"type\":\"motion_tap\",\"reaction\":\"attention\"}");
             break;
             
@@ -198,6 +240,9 @@ void Events::onMotionEvent(void* eventPtr) {
             eyes->angry = false;
             eyes->curious = false;
             eyes->sweat = false;
+            eyes->confused = false;
+            furiousShakeTriggered = false;
+            confusedStartMs = 0;
             Serial.println("{\"status\":\"event\",\"type\":\"motion_still\",\"reaction\":\"relax\"}");
             break;
             
